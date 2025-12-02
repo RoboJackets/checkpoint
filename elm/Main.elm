@@ -9,7 +9,7 @@ import Html.Attributes exposing (..)
 import Html.Events exposing (..)
 import Http exposing (..)
 import Json.Decode exposing (..)
-import Json.Decode.Pipeline exposing (optional, required)
+import Json.Decode.Pipeline
 import Json.Encode
 import Svg exposing (Svg, path, svg)
 import Svg.Attributes exposing (d)
@@ -625,7 +625,7 @@ viewSearchResults model =
                 Just result ->
                     case result of
                         Ok searchResults ->
-                            if List.length searchResults.results == 0 then
+                            if List.isEmpty searchResults.results then
                                 [ div [ style "text-align" "center", class "text-secondary", style "margin-top" "8rem" ] [ text "No results" ]
                                 ]
 
@@ -797,7 +797,7 @@ getSelectedPersonTitle model =
                         Just result ->
                             case result of
                                 Ok records ->
-                                    if List.length records == 0 then
+                                    if List.isEmpty records then
                                         Nothing
 
                                     else if List.length records == 1 then
@@ -864,7 +864,7 @@ getSelectedPersonOrganizationalUnit model =
                         Just result ->
                             case result of
                                 Ok records ->
-                                    if List.length records == 0 then
+                                    if List.isEmpty records then
                                         case selectedUser.gtedAccounts of
                                             Just gtedResult ->
                                                 case gtedResult of
@@ -975,7 +975,7 @@ viewPerson model =
 
                         _ ->
                             case getSelectedPersonTitle model of
-                                Just title ->
+                                Just _ ->
                                     False
 
                                 Nothing ->
@@ -999,14 +999,14 @@ viewPerson model =
 
                         _ ->
                             case getSelectedPersonOrganizationalUnit model of
-                                Just organizationalUnit ->
+                                Just _ ->
                                     False
 
                                 Nothing ->
                                     case selectedUser.whitepagesRecords of
                                         Just (Ok []) ->
                                             case selectedUser.gtedAccounts of
-                                                Just accounts ->
+                                                Just _ ->
                                                     False
 
                                                 Nothing ->
@@ -1172,8 +1172,7 @@ viewPerson model =
                    )
                 ++ [ h5 [ class "mt-4", class "mb-3" ] [ text "Apps " ]
                    , p [ class "text-secondary" ] [ text "Nothing here, yet" ]
-                   ]
-                ++ [ h5 [ class "mt-4", class "mb-3" ] [ text "Directories " ]
+                   , h5 [ class "mt-4", class "mb-3" ] [ text "Directories " ]
                    , div [ class "row" ]
                         [ div [ class "col-3" ]
                             [ div [ class "card" ]
