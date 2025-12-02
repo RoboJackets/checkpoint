@@ -379,7 +379,7 @@ job "checkpoint" {
 
 #       shutdown_delay = "60s"
 #     }
-#   }
+  }
 
   reschedule {
     delay = "10s"
