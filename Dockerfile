@@ -39,7 +39,7 @@ COPY --chown=uwsgi:uwsgi --from=frontend /app/static/ /app/static/
 
 COPY --chown=uwsgi:uwsgi /templates/ /app/templates/
 
-COPY --chown=uwsgi:uwsgi /checkpoint.py /pyproject.toml /poetry.lock /app/
+COPY --chown=uwsgi:uwsgi /checkpoint.py /migrate.py /pyproject.toml /poetry.lock /app/
 
 RUN set -eux && \
     POETRY_VIRTUALENVS_CREATE=false poetry install --only main --no-root --no-interaction --no-ansi && \
