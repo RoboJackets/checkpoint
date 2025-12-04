@@ -110,6 +110,13 @@ job "checkpoint" {
         memory = 128
         memory_max = 2048
       }
+
+      template {
+        data = trimspace(file("conf/.env.tpl"))
+
+        destination = "/secrets/.env"
+        env = true
+      }
     }
 
     task "web" {
