@@ -76,6 +76,8 @@ job "checkpoint" {
     task "prestart" {
       driver = "docker"
 
+      consul {}
+
       lifecycle {
         hook = "prestart"
       }
