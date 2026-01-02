@@ -107,6 +107,7 @@ type alias Model =
     { navKey : Nav.Key
     , route : Maybe Route
     , loggedInUsername : String
+    , majors : Dict String (Maybe String)
     , searchQuery : String
     , loadingSearchResults : Bool
     , searchResults : Maybe (Result Http.Error SearchResults)
@@ -363,6 +364,7 @@ buildInitialModel serverData url navKey =
         navKey
         (Url.Parser.parse urlParser url)
         (String.trim (Result.withDefault "" (decodeValue (at [ "username" ] string) serverData)))
+        (Result.withDefault Dict.empty (decodeValue (at [ "majors" ] (Json.Decode.dict (nullable string))) serverData))
         (case Url.Parser.parse urlParser url of
             Just (ViewSearchResults query) ->
                 Maybe.withDefault "" query
@@ -527,11 +529,11 @@ removePrimaryAffiliation primaryAffiliation thisAffiliation =
             True
 
 
-searchResultToHtml : SearchResult -> Html msg
-searchResultToHtml result =
+searchResultToHtml : Dict String (Maybe String) -> SearchResult -> Html msg
+searchResultToHtml majors result =
     div [ class "mb-4" ]
         ([ h4 [ class "mb-1" ] [ a [ href (urlUnparser (ViewPerson result.directoryId)) ] [ text (result.givenName ++ " " ++ result.surname) ] ]
-         , div [ class "mb-1" ] [ text (Maybe.withDefault "" result.title ++ " • " ++ Maybe.withDefault "" result.organizationalUnit) ]
+         , div [ class "mb-1" ] [ text (Maybe.withDefault "" result.title ++ " • " ++ Maybe.withDefault "" (Maybe.map (lookupOrganizationalUnit majors) result.organizationalUnit)) ]
          , span [ class "badge", class "rounded-pill", class "text-bg-primary", class "me-1" ] [ text (Maybe.withDefault "" result.primaryAffiliation) ]
          ]
             ++ List.map affiliationToBadge (List.filter (removePrimaryAffiliation result.primaryAffiliation) result.affiliations)
@@ -630,7 +632,7 @@ viewSearchResults model =
                                 ]
 
                             else
-                                List.map searchResultToHtml searchResults.results
+                                List.map (searchResultToHtml model.majors) searchResults.results
 
                         Err err ->
                             [ div [ class "alert", class "alert-danger" ]
@@ -841,81 +843,96 @@ filterSimpleGtCurriculum gtCurriculum =
     List.length (String.split "/" gtCurriculum) == 3
 
 
+lookupOrganizationalUnit : Dict String (Maybe String) -> String -> String
+lookupOrganizationalUnit majors ou =
+    case Dict.get ou majors of
+        Just (Just displayName) ->
+            displayName
+
+        _ ->
+            ou
+
+
 getSelectedPersonOrganizationalUnit : Model -> Maybe String
 getSelectedPersonOrganizationalUnit model =
-    case model.selectedUser of
-        Just selectedUser ->
-            case model.searchResults of
-                Just result ->
-                    case result of
-                        Ok searchResults ->
-                            case List.head (List.filter (filterMatchingDirectoryId selectedUser.directoryId) searchResults.results) of
-                                Just matchedResult ->
-                                    matchedResult.organizationalUnit
-
-                                Nothing ->
-                                    Nothing
-
-                        Err _ ->
-                            Nothing
-
-                Nothing ->
-                    case selectedUser.whitepagesRecords of
+    let
+        rawOrganizationalUnit : Maybe String
+        rawOrganizationalUnit =
+            case model.selectedUser of
+                Just selectedUser ->
+                    case model.searchResults of
                         Just result ->
                             case result of
-                                Ok records ->
-                                    if List.isEmpty records then
-                                        case selectedUser.gtedAccounts of
-                                            Just gtedResult ->
-                                                case gtedResult of
-                                                    Ok accounts ->
-                                                        case List.head (List.filter filterSimpleGtCurriculum (Maybe.withDefault { eduPersonPrimaryAffiliation = "", eduPersonScopedAffiliation = [], givenName = "", gtAccountEntitlement = [], gtCurriculum = [], gtEmployeeHomeDepartmentName = Nothing, gtGTID = "", gtPersonDirectoryId = "", gtPrimaryGTAccountUsername = "", sn = "", uid = "" } (List.head accounts)).gtCurriculum) of
-                                                            Just curriculum ->
-                                                                List.head (List.reverse (String.split "/" curriculum))
+                                Ok searchResults ->
+                                    case List.head (List.filter (filterMatchingDirectoryId selectedUser.directoryId) searchResults.results) of
+                                        Just matchedResult ->
+                                            matchedResult.organizationalUnit
 
-                                                            Nothing ->
-                                                                Nothing
-
-                                                    Err _ ->
-                                                        Nothing
-
-                                            Nothing ->
-                                                Nothing
-
-                                    else if List.length records == 1 then
-                                        case List.head records of
-                                            Just record ->
-                                                case Dict.get "ou" record.attributes of
-                                                    Just attributeList ->
-                                                        List.head attributeList
-
-                                                    Nothing ->
-                                                        Nothing
-
-                                            Nothing ->
-                                                Nothing
-
-                                    else
-                                        case List.head (List.filter ignoreSecondaryWhitepagesRecord records) of
-                                            Just primaryRecord ->
-                                                case Dict.get "ou" primaryRecord.attributes of
-                                                    Just attributeList ->
-                                                        List.head attributeList
-
-                                                    Nothing ->
-                                                        Nothing
-
-                                            Nothing ->
-                                                Nothing
+                                        Nothing ->
+                                            Nothing
 
                                 Err _ ->
                                     Nothing
 
                         Nothing ->
-                            Nothing
+                            case selectedUser.whitepagesRecords of
+                                Just result ->
+                                    case result of
+                                        Ok records ->
+                                            if List.isEmpty records then
+                                                case selectedUser.gtedAccounts of
+                                                    Just gtedResult ->
+                                                        case gtedResult of
+                                                            Ok accounts ->
+                                                                case List.head (List.filter filterSimpleGtCurriculum (Maybe.withDefault { eduPersonPrimaryAffiliation = "", eduPersonScopedAffiliation = [], givenName = "", gtAccountEntitlement = [], gtCurriculum = [], gtEmployeeHomeDepartmentName = Nothing, gtGTID = "", gtPersonDirectoryId = "", gtPrimaryGTAccountUsername = "", sn = "", uid = "" } (List.head accounts)).gtCurriculum) of
+                                                                    Just curriculum ->
+                                                                        List.head (List.reverse (String.split "/" curriculum))
 
-        Nothing ->
-            Nothing
+                                                                    Nothing ->
+                                                                        Nothing
+
+                                                            Err _ ->
+                                                                Nothing
+
+                                                    Nothing ->
+                                                        Nothing
+
+                                            else if List.length records == 1 then
+                                                case List.head records of
+                                                    Just record ->
+                                                        case Dict.get "ou" record.attributes of
+                                                            Just attributeList ->
+                                                                List.head attributeList
+
+                                                            Nothing ->
+                                                                Nothing
+
+                                                    Nothing ->
+                                                        Nothing
+
+                                            else
+                                                case List.head (List.filter ignoreSecondaryWhitepagesRecord records) of
+                                                    Just primaryRecord ->
+                                                        case Dict.get "ou" primaryRecord.attributes of
+                                                            Just attributeList ->
+                                                                List.head attributeList
+
+                                                            Nothing ->
+                                                                Nothing
+
+                                                    Nothing ->
+                                                        Nothing
+
+                                        Err _ ->
+                                            Nothing
+
+                                Nothing ->
+                                    Nothing
+
+                Nothing ->
+                    Nothing
+    in
+    Maybe.map (lookupOrganizationalUnit model.majors) rawOrganizationalUnit
 
 
 fetchViewPersonData : String -> Cmd Msg
