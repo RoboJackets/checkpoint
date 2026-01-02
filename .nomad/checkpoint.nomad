@@ -65,7 +65,7 @@ job "checkpoint" {
     network {
       port "http" {}
 
-      # port "resp" {}
+      port "resp" {}
     }
 
     volume "run" {
