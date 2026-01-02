@@ -20,6 +20,8 @@ from authlib.integrations.requests_client import OAuth2Session
 from flask import Flask, g, render_template, request, session
 from flask.helpers import get_debug_flag, redirect, url_for
 
+from flask_caching import Cache
+
 from ldap3 import (
     Connection,
     DEREF_ALWAYS,
@@ -100,6 +102,27 @@ keycloak = OAuth2Session(
     leeway=5,
 )
 keycloak.fetch_token()
+
+apiary = OAuth2Session(
+    client_id=app.config["APIARY_CLIENT_ID"],
+    client_secret=app.config["APIARY_CLIENT_SECRET"],
+    token_endpoint=app.config["APIARY_BASE_URL"] + "/oauth/token",
+)
+apiary.fetch_token()
+
+cache = Cache(app)
+cache.clear()
+
+
+@cache.cached(key_prefix="majors")
+def get_majors() -> Dict[str, str]:
+    """
+    Fetch majors from Apiary and return as a map of whitepages_ou to display_name
+    """
+    response = apiary.get(app.config["APIARY_BASE_URL"] + "/api/v1/majors")
+    response.raise_for_status()
+    data = response.json()
+    return {major["whitepages_ou"]: major["display_name"] for major in data["majors"]}
 
 
 def generate_subresource_integrity_hash(file: str) -> str:
@@ -320,6 +343,7 @@ def spa(directory_id: Union[str, None] = None) -> Any:  # pylint: disable=unused
         "app.html",
         elm_model={
             "username": session["username"],
+            "majors": get_majors(),
             # TODO check if user has IAT access and (likely) network connectivity to IAT  # pylint: disable=fixme  # noqa
         },
     )
