@@ -1,0 +1,10 @@
+---
+alwaysApply: true
+---
+This repository uses Elm for its frontend.
+
+All Elm code should pass linters:
+
+elm-review
+
+elm-format
