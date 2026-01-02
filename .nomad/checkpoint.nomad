@@ -304,90 +304,90 @@ job "checkpoint" {
     #   shutdown_delay = "30s"
     # }
 
-#     task "redis" {
-#       driver = "docker"
+    task "redis" {
+      driver = "docker"
 
-#       lifecycle {
-#         hook = "prestart"
-#         sidecar = true
-#       }
+      lifecycle {
+        hook = "prestart"
+        sidecar = true
+      }
 
-#       config {
-#         image = "redis"
+      config {
+        image = "redis"
 
-#         args = [
-#           "/usr/local/etc/redis/redis.conf"
-#         ]
+        args = [
+          "/usr/local/etc/redis/redis.conf"
+        ]
 
-#         force_pull = true
+        force_pull = true
 
-#         network_mode = "host"
+        network_mode = "host"
 
-#         mount {
-#           type   = "bind"
-#           source = "secrets/"
-#           target = "/usr/local/etc/redis/"
-#         }
-#       }
+        mount {
+          type   = "bind"
+          source = "secrets/"
+          target = "/usr/local/etc/redis/"
+        }
+      }
 
-#       resources {
-#         cpu = 100
-#         memory = 128
-#         memory_max = 1024
-#       }
+      resources {
+        cpu = 100
+        memory = 128
+        memory_max = 1024
+      }
 
-#       template {
-#         data = <<EOH
-# bind 127.0.0.1
-# port {{ env "NOMAD_PORT_resp" }}
-# unixsocket /alloc/tmp/redis.sock
-# unixsocketperm 777
-# requirepass {{ env "NOMAD_ALLOC_ID" }}
-# maxmemory {{ env "NOMAD_MEMORY_MAX_LIMIT" }}mb
-# maxmemory-policy allkeys-lru
-# EOH
+      template {
+        data = <<EOH
+bind 127.0.0.1
+port {{ env "NOMAD_PORT_resp" }}
+unixsocket /alloc/tmp/redis.sock
+unixsocketperm 777
+requirepass {{ env "NOMAD_ALLOC_ID" }}
+maxmemory {{ env "NOMAD_MEMORY_MAX_LIMIT" }}mb
+maxmemory-policy allkeys-lru
+EOH
 
-#         destination = "secrets/redis.conf"
-#       }
+        destination = "secrets/redis.conf"
+      }
 
-#       service {
-#         name = "${NOMAD_JOB_NAME}-redis"
+      service {
+        name = "${NOMAD_JOB_NAME}-redis"
 
-#         port = "resp"
+        port = "resp"
 
-#         address = "127.0.0.1"
+        address = "127.0.0.1"
 
-#         tags = [
-#           "resp"
-#         ]
+        tags = [
+          "resp"
+        ]
 
-#         check {
-#           success_before_passing = 3
-#           failures_before_critical = 2
+        check {
+          success_before_passing = 3
+          failures_before_critical = 2
 
-#           interval = "1s"
+          interval = "1s"
 
-#           name = "TCP"
-#           port = "resp"
-#           timeout = "1s"
-#           type = "tcp"
-#         }
+          name = "TCP"
+          port = "resp"
+          timeout = "1s"
+          type = "tcp"
+        }
 
-#         check_restart {
-#           limit = 5
-#           grace = "20s"
-#         }
-#       }
+        check_restart {
+          limit = 5
+          grace = "20s"
+        }
+      }
 
-#       restart {
-#         attempts = 5
-#         delay = "10s"
-#         interval = "1m"
-#         mode = "fail"
-#       }
+      restart {
+        attempts = 5
+        delay = "10s"
+        interval = "1m"
+        mode = "fail"
+      }
 
-#       shutdown_delay = "60s"
-#     }
+      shutdown_delay = "60s"
+    }
   }
 
   reschedule {
