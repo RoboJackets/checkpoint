@@ -25,11 +25,11 @@ from flask_caching import Cache
 from ldap3 import (
     Connection,
     DEREF_ALWAYS,
-    Entry,
     SUBTREE,
     Server,
 )
 from ldap3.operation.search import search_operation
+from ldap3.utils.log import EXTENDED, set_library_log_detail_level
 
 from requests import post
 
@@ -113,16 +113,7 @@ apiary.fetch_token()
 cache = Cache(app)
 cache.clear()
 
-
-@cache.cached(key_prefix="majors")
-def get_majors() -> Dict[str, str]:
-    """
-    Fetch majors from Apiary and return as a map of whitepages_ou to display_name
-    """
-    response = apiary.get(app.config["APIARY_BASE_URL"] + "/api/v1/majors")
-    response.raise_for_status()
-    data = response.json()
-    return {major["whitepages_ou"]: major["display_name"] for major in data["majors"]}
+set_library_log_detail_level(EXTENDED)
 
 
 def generate_subresource_integrity_hash(file: str) -> str:
@@ -136,6 +127,49 @@ def generate_subresource_integrity_hash(file: str) -> str:
 
 
 app.jinja_env.globals["calculate_integrity"] = generate_subresource_integrity_hash
+
+
+@cache.cached(key_prefix="majors")
+def get_majors() -> Dict[str, str]:
+    """
+    Fetch majors from Apiary and return as a map of whitepages_ou to display_name
+    """
+    response = apiary.get(app.config["APIARY_BASE_URL"] + "/api/v1/majors")
+    response.raise_for_status()
+    data = response.json()
+    return {major["whitepages_ou"]: major["display_name"] for major in data["majors"]}
+
+
+def build_ldap_filter(**kwargs: str) -> str:
+    """
+    Builds up an LDAP filter from kwargs
+
+    :param kwargs: Dict of attribute name, value pairs
+    :return: LDAP search filter representation of the dict
+    """
+    search_filter = ""
+    for name, value in kwargs.items():
+        search_filter = f"{search_filter}({name}={value})"
+    if len(kwargs) > 1:
+        search_filter = f"(&{search_filter})"
+    return search_filter
+
+
+def get_attribute_value(
+    attribute_name: str, entry: Dict[str, Dict[str, List[str]]]
+) -> Union[str, None]:
+    """
+    Get a given attribute value from a Whitepages entry, if it exists
+    """
+    if (
+        "attributes" in entry
+        and attribute_name in entry["attributes"]
+        and entry["attributes"][attribute_name] is not None
+        and len(entry["attributes"][attribute_name]) > 0
+    ):
+        return entry["attributes"][attribute_name][0]
+
+    return None
 
 
 def get_buzzapi_primary_account(**kwargs: str) -> Union[Dict[str, Any], None]:
@@ -185,7 +219,58 @@ def search_gted(**kwargs: str) -> List[Dict[str, Any]]:
     )
     buzzapi_response.raise_for_status()
 
+    # TODO store results in Crosswalk  # pylint: disable=fixme
+
     return buzzapi_response.json()["api_result_data"]  # type: ignore
+
+
+@cache.memoize()
+def search_whitepages(**kwargs: str) -> List[Dict[str, Dict[str, List[str]]]]:
+    """
+    Search Whitepages with a given LDAP filter
+    """
+    with sentry_sdk.start_span(op="whitepages.connect"):
+        whitepages = Connection(
+            Server("whitepages.gatech.edu", connect_timeout=1),
+            auto_bind=True,
+            raise_exceptions=True,
+            receive_timeout=1,
+            return_empty_attributes=False,
+        )
+
+    print(build_ldap_filter(**kwargs))
+
+    with sentry_sdk.start_span(op="whitepages.search"):
+        # the normal .search function does not allow sending blank attributes in the request,
+        # which is the easiest way to get all attributes back from whitepages
+        # there is some munging inside the .search function, and then it calls the below two
+        # internal functions (among other things)
+        ldap_request = search_operation(
+            search_base="dc=whitepages,dc=gatech,dc=edu",
+            search_filter=build_ldap_filter(**kwargs),
+            search_scope=SUBTREE,
+            dereference_aliases=DEREF_ALWAYS,
+            attributes=[],
+            size_limit=0,
+            time_limit=0,
+            types_only=False,
+            auto_escape=False,
+            auto_encode=False,
+            schema=None,
+            validator=None,
+            check_names=False,
+        )
+
+        whitepages.post_send_search(whitepages.send("searchRequest", ldap_request, []))
+
+    records = []
+
+    for entry in whitepages.entries:
+        records.append(loads(entry.entry_to_json()))
+
+    # TODO store results in Crosswalk  # pylint: disable=fixme
+
+    return records
 
 
 def clean_affiliations(affiliations: List[str]) -> List[str]:
@@ -209,7 +294,7 @@ def clean_affiliations(affiliations: List[str]) -> List[str]:
 
 
 def format_search_result(
-    buzzapi_account: Dict[str, Any], whitepages_entries: List[Entry]
+    buzzapi_account: Dict[str, Any], whitepages_entries: List[Dict[str, Dict[str, List[str]]]]
 ) -> Dict[str, Union[Any, None]]:
     """
     Format a search result for the UI
@@ -218,31 +303,23 @@ def format_search_result(
     organizational_unit = None
 
     if len(whitepages_entries) == 1:
-        if (
-            "title" in whitepages_entries[0]
-            and whitepages_entries[0]["title"] is not None
-            and whitepages_entries[0]["title"].value is not None
-        ):
-            title = whitepages_entries[0]["title"].value
+        title = get_attribute_value("title", whitepages_entries[0])
 
-        if (
-            "ou" in whitepages_entries[0]
-            and whitepages_entries[0]["ou"] is not None
-            and whitepages_entries[0]["ou"].value is not None
-        ):
-            organizational_unit = whitepages_entries[0]["ou"].value
+        organizational_unit = get_attribute_value("ou", whitepages_entries[0])
 
     elif len(whitepages_entries) > 1:
         for entry in whitepages_entries:
             if (
-                "title" in entry  # pylint: disable=too-many-boolean-expressions
-                and entry["title"] is not None
-                and entry["title"].value is not None
-                and "student assistant" not in entry["title"].value.lower()
-                and "research assistant" not in entry["title"].value.lower()
-                and "graduate assistant" not in entry["title"].value.lower()
-                and "research technologist" not in entry["title"].value.lower()
-                and "instructional associate" not in entry["title"].value.lower()
+                "attributes" in entry  # pylint: disable=too-many-boolean-expressions
+                and "title" in entry["attributes"]
+                and entry["attributes"]["title"] is not None
+                and len(entry["attributes"]["title"]) > 0
+                and entry["attributes"]["title"][0] is not None
+                and "student assistant" not in entry["attributes"]["title"][0].lower()
+                and "research assistant" not in entry["attributes"]["title"][0].lower()
+                and "graduate assistant" not in entry["attributes"]["title"][0].lower()
+                and "research technologist" not in entry["attributes"]["title"][0].lower()
+                and "instructional associate" not in entry["attributes"]["title"][0].lower()
             ):
                 if title is not None:
                     raise InternalServerError(
@@ -250,10 +327,9 @@ def format_search_result(
                         + buzzapi_account["gtPrimaryGTAccountUsername"]
                     )
 
-                title = entry["title"].value
+                title = entry["attributes"]["title"][0]
 
-                if "ou" in entry and entry["ou"] is not None and entry["ou"].value is not None:
-                    organizational_unit = entry["ou"].value
+                organizational_unit = get_attribute_value("ou", entry)
 
     return {
         "givenName": buzzapi_account["givenName"],
@@ -395,14 +471,6 @@ def search() -> (
 
     query = request.json["query"].strip()  # type: ignore
 
-    with sentry_sdk.start_span(op="whitepages.connect"):
-        whitepages = Connection(
-            Server("whitepages.gatech.edu", connect_timeout=1),
-            auto_bind=True,
-            raise_exceptions=True,
-            receive_timeout=1,
-        )
-
     try:  # pylint: disable=too-many-nested-blocks
         # check if the query is formatted like an email address
         email_address = Address(addr_spec=query)
@@ -422,39 +490,25 @@ def search() -> (
                     "gtPersonDirectoryId from Crosswalk was not found in BuzzAPI"
                 )
 
-            with sentry_sdk.start_span(op="whitepages.search"):
-                result = whitepages.search(
-                    search_base="dc=whitepages,dc=gatech,dc=edu",
-                    search_filter="(uid=" + buzzapi_account["gtPrimaryGTAccountUsername"] + ")",
-                    attributes=["title", "ou"],
-                )
-
             return {
                 "results": [
                     format_search_result(
-                        buzzapi_account, whitepages.entries if result is True else []
+                        buzzapi_account,
+                        search_whitepages(uid=buzzapi_account["gtPrimaryGTAccountUsername"]),
                     ),
                 ],
                 "exactMatch": True,
             }
 
-        with sentry_sdk.start_span(op="whitepages.search"):
-            result = whitepages.search(
-                search_base="dc=whitepages,dc=gatech,dc=edu",
-                search_filter="(mail=" + email_address.addr_spec + ")",
-                attributes=["primaryUid"],
-            )
+        entries = search_whitepages(mail=email_address.addr_spec)
 
         uid = None
 
-        if result is True:
-            for entry in whitepages.entries:
-                if (
-                    "primaryUid" in entry
-                    and entry["primaryUid"] is not None
-                    and entry["primaryUid"].value is not None
-                ):
-                    uid = entry["primaryUid"].value
+        for entry in entries:
+            this_uid = get_attribute_value("primaryUid", entry)
+
+            if this_uid is not None:
+                uid = this_uid
 
         if uid is None:
             if (
@@ -476,47 +530,33 @@ def search() -> (
                             "gtPersonDirectoryId from Crosswalk was not found in BuzzAPI"
                         )
 
-                    with sentry_sdk.start_span(op="whitepages.search"):
-                        result = whitepages.search(
-                            search_base="dc=whitepages,dc=gatech,dc=edu",
-                            search_filter="(uid=" + email_address.username + ")",
-                            attributes=["title", "ou"],
-                        )
-
                     return {
                         "results": [
                             format_search_result(
-                                buzzapi_account, whitepages.entries if result is True else []
+                                buzzapi_account,
+                                search_whitepages(
+                                    uid=buzzapi_account["gtPrimaryGTAccountUsername"]
+                                ),
                             ),
                         ],
                         "exactMatch": True,
                     }
 
-                with sentry_sdk.start_span(op="whitepages.search"):
-                    result = whitepages.search(
-                        search_base="dc=whitepages,dc=gatech,dc=edu",
-                        search_filter="(uid=" + email_address.username + ")",
-                        attributes=["primaryUid"],
-                    )
+                entries = search_whitepages(uid=email_address.username)
 
                 uid = None
                 mails = set()
 
-                if result is True:
-                    for entry in whitepages.entries:
-                        if (
-                            "primaryUid" in entry
-                            and entry["primaryUid"] is not None
-                            and entry["primaryUid"].value is not None
-                        ):
-                            uid = entry["primaryUid"].value
+                for entry in entries:
+                    this_uid = get_attribute_value("primaryUid", entry)
 
-                        if (
-                            "mail" in entry
-                            and entry["mail"] is not None
-                            and entry["mail"].value is not None
-                        ):
-                            mails.add(entry["mail"].value)
+                    if this_uid is not None:
+                        uid = this_uid
+
+                    this_mail = get_attribute_value("mail", entry)
+
+                    if this_mail is not None:
+                        mails.add(this_mail)
 
                 if uid is None:
                     return {
@@ -567,7 +607,7 @@ def search() -> (
 
                 return {
                     "results": [
-                        format_search_result(buzzapi_account, whitepages.entries),
+                        format_search_result(buzzapi_account, entries),
                     ],
                     "exactMatch": True,
                 }
@@ -616,16 +656,12 @@ def search() -> (
             },
         )
 
-        with sentry_sdk.start_span(op="whitepages.search"):
-            result = whitepages.search(
-                search_base="dc=whitepages,dc=gatech,dc=edu",
-                search_filter="(uid=" + buzzapi_account["gtPrimaryGTAccountUsername"] + ")",
-                attributes=["title", "ou"],
-            )
-
         return {
             "results": [
-                format_search_result(buzzapi_account, whitepages.entries if result is True else []),
+                format_search_result(
+                    buzzapi_account,
+                    search_whitepages(uid=buzzapi_account["gtPrimaryGTAccountUsername"]),
+                ),
             ],
             "exactMatch": True,
         }
@@ -646,47 +682,28 @@ def search() -> (
                         "gtPersonDirectoryId from Crosswalk was not found in BuzzAPI"
                     )
 
-                with sentry_sdk.start_span(op="whitepages.search"):
-                    result = whitepages.search(
-                        search_base="dc=whitepages,dc=gatech,dc=edu",
-                        search_filter="(uid=" + query + ")",
-                        attributes=["title", "ou"],
-                    )
-
                 return {
                     "results": [
-                        format_search_result(
-                            buzzapi_account, whitepages.entries if result is True else []
-                        ),
+                        format_search_result(buzzapi_account, search_whitepages(uid=query)),
                     ],
                     "exactMatch": True,
                 }
 
-            with sentry_sdk.start_span(op="whitepages.search"):
-                result = whitepages.search(
-                    search_base="dc=whitepages,dc=gatech,dc=edu",
-                    search_filter="(uid=" + query + ")",
-                    attributes=["primaryUid"],
-                )
+            entries = search_whitepages(uid=query)
 
             uid = None
             mails = set()
 
-            if result is True:
-                for entry in whitepages.entries:
-                    if (
-                        "primaryUid" in entry
-                        and entry["primaryUid"] is not None
-                        and entry["primaryUid"].value is not None
-                    ):
-                        uid = entry["primaryUid"].value
+            for entry in entries:
+                this_uid = get_attribute_value("primaryUid", entry)
 
-                    if (
-                        "mail" in entry
-                        and entry["mail"] is not None
-                        and entry["mail"].value is not None
-                    ):
-                        mails.add(entry["mail"].value)
+                if this_uid is not None:
+                    uid = this_uid
+
+                this_mail = get_attribute_value("mail", entry)
+
+                if this_mail is not None:
+                    mails.add(this_mail)
 
             if uid is None:
                 return {
@@ -740,7 +757,7 @@ def search() -> (
 
             return {
                 "results": [
-                    format_search_result(buzzapi_account, whitepages.entries),
+                    format_search_result(buzzapi_account, entries),
                 ],
                 "exactMatch": True,
             }
@@ -748,48 +765,30 @@ def search() -> (
         # check if the query is formatted like a first and last name
         split_name = query.split(" ")
         if len(split_name) == 2 and len(split_name[0]) > 1 and len(split_name[1]) > 1:
-            with sentry_sdk.start_span(op="whitepages.search"):
-                result = whitepages.search(
-                    search_base="dc=whitepages,dc=gatech,dc=edu",
-                    search_filter="(&(givenName="
-                    + split_name[0]
-                    + "*)(sn="
-                    + split_name[1]
-                    + "*))",
-                    attributes=["primaryUid"],
-                )
+            entries = search_whitepages(givenName=split_name[0] + "*", sn=split_name[1] + "*")
 
             uids = set()
 
-            if result is True:
-                for entry in whitepages.entries:
-                    if (
-                        "primaryUid" in entry
-                        and entry["primaryUid"] is not None
-                        and entry["primaryUid"].value is not None
-                    ):
-                        uids.add(entry["primaryUid"].value)
+            print(entries)
+
+            for entry in entries:
+                this_uid = get_attribute_value("primaryUid", entry)
+
+                if this_uid is not None:
+                    uids.add(this_uid)
 
             formatted_results = []
 
             for uid in uids:
-                with sentry_sdk.start_span(op="whitepages.search"):
-                    result = whitepages.search(
-                        search_base="dc=whitepages,dc=gatech,dc=edu",
-                        search_filter="(uid=" + uid + ")",
-                        attributes=["mail", "title", "ou"],
-                    )
+                entries = search_whitepages(uid=uid)
 
                 mails = set()
 
-                if result is True:
-                    for entry in whitepages.entries:
-                        if (
-                            "mail" in entry
-                            and entry["mail"] is not None
-                            and entry["mail"].value is not None
-                        ):
-                            mails.add(entry["mail"].value)
+                for entry in entries:
+                    this_mail = get_attribute_value("mail", entry)
+
+                    if this_mail is not None:
+                        mails.add(this_mail)
 
                 buzzapi_account = get_buzzapi_primary_account(uid=uid)
 
@@ -835,7 +834,7 @@ def search() -> (
                         },
                     )
 
-                formatted_results.append(format_search_result(buzzapi_account, whitepages.entries))
+                formatted_results.append(format_search_result(buzzapi_account, entries))
 
             return {
                 "results": formatted_results,
@@ -849,7 +848,7 @@ def search() -> (
 
 
 @app.get("/view/<directory_id>/whitepages")
-def get_whitepages_records(directory_id: str) -> List[Any]:
+def get_whitepages_records(directory_id: str) -> List[Dict[str, Dict[str, List[str]]]]:
     """
     Get Whitepages entries for a provided gtPersonDirectoryId
     """
@@ -875,43 +874,7 @@ def get_whitepages_records(directory_id: str) -> List[Any]:
 
         primary_username = buzzapi_account["gtPrimaryGTAccountUsername"]
 
-    with sentry_sdk.start_span(op="whitepages.connect"):
-        whitepages = Connection(
-            Server("whitepages.gatech.edu", connect_timeout=1),
-            auto_bind=True,
-            raise_exceptions=True,
-            receive_timeout=1,
-            return_empty_attributes=False,
-        )
-
-    with sentry_sdk.start_span(op="whitepages.search"):
-        # the normal .search function does not allow sending blank attributes in the request
-        # there is some munging inside the .search function, and then it calls the below two
-        # internal functions (among other things)
-        ldap_request = search_operation(
-            search_base="dc=whitepages,dc=gatech,dc=edu",
-            search_filter="(uid=" + primary_username + ")",
-            search_scope=SUBTREE,
-            dereference_aliases=DEREF_ALWAYS,
-            attributes=[],
-            size_limit=0,
-            time_limit=0,
-            types_only=False,
-            auto_escape=False,
-            auto_encode=False,
-            schema=None,
-            validator=None,
-            check_names=False,
-        )
-
-        whitepages.post_send_search(whitepages.send("searchRequest", ldap_request, []))
-
-    records = []
-
-    for entry in whitepages.entries:
-        records.append(loads(entry.entry_to_json()))
-
-    return records
+    return search_whitepages(uid=primary_username)  # type: ignore
 
 
 @app.get("/view/<directory_id>/gted")
