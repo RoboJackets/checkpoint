@@ -479,6 +479,109 @@ def login() -> Any:
     return redirect(session["next"])
 
 
+def search_by_email(email_address: Address) -> Dict[str, Any]:
+    # search crosswalk by email
+    cursor = db().execute(
+        "SELECT gt_person_directory_id FROM crosswalk_email_address WHERE email_address = (:email_address)",  # noqa
+        {"email_address": email_address.addr_spec.lower()},
+    )
+    row = cursor.fetchone()
+
+    if row is not None:
+        # found person in crosswalk, return that
+        buzzapi_account = get_buzzapi_primary_account(gtPersonDirectoryId=row[0])
+
+        if buzzapi_account is None:
+            raise InternalServerError(
+                "gtPersonDirectoryId from Crosswalk was not found in BuzzAPI"
+            )
+
+        return {
+            "results": [
+                format_search_result(
+                    buzzapi_account,
+                    search_whitepages(uid=buzzapi_account["gtPrimaryGTAccountUsername"]),
+                ),
+            ],
+            "exactMatch": True,
+        }
+
+    # search whitepages by email
+    entries = search_whitepages(mail=email_address.addr_spec)
+
+    uid = None
+
+    for entry in entries:
+        this_uid = get_attribute_value("primaryUid", entry)
+
+        if this_uid is not None:
+            uid = this_uid
+
+    if uid is None:
+        # whitepages doesn't have email, check if the username looks like a GT username
+        if (
+            fullmatch(GEORGIA_TECH_USERNAME_REGEX, email_address.username, IGNORECASE)
+            is not None
+            and email_address.domain == "gatech.edu"
+        ):
+            # search crosswalk by username
+            cursor = db().execute(
+                "SELECT gt_person_directory_id FROM crosswalk WHERE primary_username = (:username)",  # noqa
+                {"username": email_address.username},
+            )
+            row = cursor.fetchone()
+
+            if row is not None:
+                # found person in crosswalk, return that
+                buzzapi_account = get_buzzapi_primary_account(gtPersonDirectoryId=row[0])
+
+                if buzzapi_account is None:
+                    raise InternalServerError(
+                        "gtPersonDirectoryId from Crosswalk was not found in BuzzAPI"
+                    )
+
+                return {
+                    "results": [
+                        format_search_result(
+                            buzzapi_account,
+                            search_whitepages(
+                                uid=buzzapi_account["gtPrimaryGTAccountUsername"]
+                            ),
+                        ),
+                    ],
+                    "exactMatch": True,
+                }
+
+            # search whitepages by username
+            entries = search_whitepages(uid=email_address.username)
+
+            uid = None
+
+            for entry in entries:
+                this_uid = get_attribute_value("primaryUid", entry)
+
+                if this_uid is not None:
+                    uid = this_uid
+
+            if uid is not None:
+                # found person in whitepages, return that
+                buzzapi_account = get_buzzapi_primary_account(uid=email_address.username)
+
+                if buzzapi_account is None:
+                    raise InternalServerError("Account found in Whitepages but not BuzzAPI")
+
+                return {
+                    "results": [
+                        format_search_result(buzzapi_account, entries),
+                    ],
+                    "exactMatch": True,
+                }
+
+    return {
+        "results": [],
+        "exactMatch": True
+    }
+
 @app.post("/search")
 def search() -> (
     Dict[str, Any]
@@ -496,198 +599,7 @@ def search() -> (
 
     try:  # pylint: disable=too-many-nested-blocks
         # check if the query is formatted like an email address
-        email_address = Address(addr_spec=query)
-
-        # if yes, check crosswalk
-        cursor = db().execute(
-            "SELECT gt_person_directory_id FROM crosswalk_email_address WHERE email_address = (:email_address)",  # noqa
-            {"email_address": email_address.addr_spec.lower()},
-        )
-        row = cursor.fetchone()
-
-        if row is not None:
-            buzzapi_account = get_buzzapi_primary_account(gtPersonDirectoryId=row[0])
-
-            if buzzapi_account is None:
-                raise InternalServerError(
-                    "gtPersonDirectoryId from Crosswalk was not found in BuzzAPI"
-                )
-
-            return {
-                "results": [
-                    format_search_result(
-                        buzzapi_account,
-                        search_whitepages(uid=buzzapi_account["gtPrimaryGTAccountUsername"]),
-                    ),
-                ],
-                "exactMatch": True,
-            }
-
-        entries = search_whitepages(mail=email_address.addr_spec)
-
-        uid = None
-
-        for entry in entries:
-            this_uid = get_attribute_value("primaryUid", entry)
-
-            if this_uid is not None:
-                uid = this_uid
-
-        if uid is None:
-            if (
-                fullmatch(GEORGIA_TECH_USERNAME_REGEX, email_address.username, IGNORECASE)
-                is not None
-                and email_address.domain == "gatech.edu"
-            ):
-                cursor = db().execute(
-                    "SELECT gt_person_directory_id FROM crosswalk WHERE primary_username = (:username)",  # noqa
-                    {"username": email_address.username},
-                )
-                row = cursor.fetchone()
-
-                if row is not None:
-                    buzzapi_account = get_buzzapi_primary_account(gtPersonDirectoryId=row[0])
-
-                    if buzzapi_account is None:
-                        raise InternalServerError(
-                            "gtPersonDirectoryId from Crosswalk was not found in BuzzAPI"
-                        )
-
-                    return {
-                        "results": [
-                            format_search_result(
-                                buzzapi_account,
-                                search_whitepages(
-                                    uid=buzzapi_account["gtPrimaryGTAccountUsername"]
-                                ),
-                            ),
-                        ],
-                        "exactMatch": True,
-                    }
-
-                entries = search_whitepages(uid=email_address.username)
-
-                uid = None
-                mails = set()
-
-                for entry in entries:
-                    this_uid = get_attribute_value("primaryUid", entry)
-
-                    if this_uid is not None:
-                        uid = this_uid
-
-                    this_mail = get_attribute_value("mail", entry)
-
-                    if this_mail is not None:
-                        mails.add(this_mail)
-
-                if uid is None:
-                    return {
-                        "results": [],
-                        "exactMatch": True,
-                    }
-
-                buzzapi_account = get_buzzapi_primary_account(uid=email_address.username)
-
-                if buzzapi_account is None:
-                    raise InternalServerError("Account found in Whitepages but not BuzzAPI")
-
-                db().execute(
-                    (
-                        "INSERT INTO crosswalk (gt_person_directory_id, gtid, primary_username)"
-                        " VALUES (:gt_person_directory_id, :gtid, :primary_username) ON CONFLICT DO NOTHING"  # noqa
-                    ),
-                    {
-                        "gt_person_directory_id": buzzapi_account["gtPersonDirectoryId"],
-                        "gtid": buzzapi_account["gtGTID"],
-                        "primary_username": buzzapi_account["gtPrimaryGTAccountUsername"],
-                    },
-                )
-                db().execute(
-                    (
-                        "INSERT INTO crosswalk_email_address (email_address, gt_person_directory_id)"  # noqa
-                        " VALUES (:email_address, :gt_person_directory_id)"
-                        " ON CONFLICT DO UPDATE SET gt_person_directory_id = (:gt_person_directory_id) WHERE email_address = (:email_address)"  # noqa
-                    ),
-                    {
-                        "email_address": buzzapi_account["mail"],
-                        "gt_person_directory_id": buzzapi_account["gtPersonDirectoryId"],
-                    },
-                )
-
-                for mail in mails:
-                    db().execute(
-                        (
-                            "INSERT INTO crosswalk_email_address (email_address, gt_person_directory_id)"  # noqa
-                            " VALUES (:email_address, :gt_person_directory_id)"
-                            " ON CONFLICT DO UPDATE SET gt_person_directory_id = (:gt_person_directory_id) WHERE email_address = (:email_address)"  # noqa
-                        ),
-                        {
-                            "email_address": mail,
-                            "gt_person_directory_id": buzzapi_account["gtPersonDirectoryId"],
-                        },
-                    )
-
-                return {
-                    "results": [
-                        format_search_result(buzzapi_account, entries),
-                    ],
-                    "exactMatch": True,
-                }
-
-            return {
-                "results": [],
-                "exactMatch": True,
-            }
-
-        buzzapi_account = get_buzzapi_primary_account(uid=email_address.username)
-
-        if buzzapi_account is None:
-            raise InternalServerError("Account found in Whitepages but not BuzzAPI")
-
-        db().execute(
-            (
-                "INSERT INTO crosswalk (gt_person_directory_id, gtid, primary_username)"
-                " VALUES (:gt_person_directory_id, :gtid, :primary_username) ON CONFLICT DO NOTHING"
-            ),
-            {
-                "gt_person_directory_id": buzzapi_account["gtPersonDirectoryId"],
-                "gtid": buzzapi_account["gtGTID"],
-                "primary_username": buzzapi_account["gtPrimaryGTAccountUsername"],
-            },
-        )
-        db().execute(
-            (
-                "INSERT INTO crosswalk_email_address (email_address, gt_person_directory_id)"
-                " VALUES (:email_address, :gt_person_directory_id)"
-                " ON CONFLICT DO UPDATE SET gt_person_directory_id = (:gt_person_directory_id) WHERE email_address = (:email_address)"  # noqa
-            ),
-            {
-                "email_address": buzzapi_account["mail"],
-                "gt_person_directory_id": buzzapi_account["gtPersonDirectoryId"],
-            },
-        )
-        db().execute(
-            (
-                "INSERT INTO crosswalk_email_address (email_address, gt_person_directory_id)"
-                " VALUES (:email_address, :gt_person_directory_id)"
-                " ON CONFLICT DO UPDATE SET gt_person_directory_id = (:gt_person_directory_id) WHERE email_address = (:email_address)"  # noqa
-            ),
-            {
-                "email_address": email_address.addr_spec,
-                "gt_person_directory_id": buzzapi_account["gtPersonDirectoryId"],
-            },
-        )
-
-        return {
-            "results": [
-                format_search_result(
-                    buzzapi_account,
-                    search_whitepages(uid=buzzapi_account["gtPrimaryGTAccountUsername"]),
-                ),
-            ],
-            "exactMatch": True,
-        }
+        return search_by_email(Address(addr_spec=query))
     except InvalidHeaderDefect:
         # check if the query is formatted like a GT username
         if fullmatch(GEORGIA_TECH_USERNAME_REGEX, query, IGNORECASE) is not None:
