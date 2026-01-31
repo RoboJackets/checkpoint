@@ -219,7 +219,30 @@ def search_gted(**kwargs: str) -> List[Dict[str, Any]]:
     )
     buzzapi_response.raise_for_status()
 
-    # TODO store results in Crosswalk  # pylint: disable=fixme
+    for account in buzzapi_response.json()["api_result_data"]:
+        db().execute(
+            (
+                "INSERT INTO crosswalk (gt_person_directory_id, gtid, primary_username)"
+                " VALUES (:gt_person_directory_id, :gtid, :primary_username) ON CONFLICT DO NOTHING"  # noqa
+            ),
+            {
+                "gt_person_directory_id": account["gtPersonDirectoryId"],
+                "gtid": account["gtGTID"],
+                "primary_username": account["gtPrimaryGTAccountUsername"],
+            },
+        )
+        db().execute(
+            (
+                "INSERT INTO crosswalk_email_address (email_address, gt_person_directory_id)"  # noqa
+                " VALUES (:email_address, :gt_person_directory_id)"
+                " ON CONFLICT DO UPDATE SET gt_person_directory_id = (:gt_person_directory_id) WHERE email_address = (:email_address)"
+            # noqa
+            ),
+            {
+                "email_address": account["mail"],
+                "gt_person_directory_id": account["gtPersonDirectoryId"],
+            },
+        )
 
     return buzzapi_response.json()["api_result_data"]  # type: ignore
 
