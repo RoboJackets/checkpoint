@@ -1093,7 +1093,7 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
         keycloak_results = search_keycloak(username=primary_username, exact=True)
 
         if len(keycloak_results) > 0:
-            keycloak_user_id = keycloak_results[0]["username"]
+            keycloak_user_id = keycloak_results[0]["id"]
 
     if keycloak_user_id is not None:
         keycloak_response = keycloak.get(
