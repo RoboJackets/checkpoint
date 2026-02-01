@@ -14,6 +14,7 @@ import Json.Encode
 import Svg exposing (Svg, path, svg)
 import Svg.Attributes exposing (d)
 import Task
+import Time exposing (..)
 import Url
 import Url.Builder
 import Url.Parser exposing ((</>), (<?>))
@@ -69,7 +70,7 @@ type alias SearchResults =
     }
 
 
-type alias WhitepagesRecord =
+type alias WhitepagesEntry =
     { dn : String
     , attributes : Dict String (List String)
     }
@@ -90,10 +91,28 @@ type alias GtedAccount =
     }
 
 
+type alias KeycloakAccount =
+    { id : String
+    , enabled : Bool
+    , attributes : Dict String (List String)
+    }
+
+
+type alias Event =
+    { actorDisplayName : String
+    , actorLink : Maybe String
+    , eventDescription : String
+    , eventLink : Maybe String
+    , eventTimestamp : Time.Posix
+    }
+
+
 type alias SelectedUser =
     { directoryId : String
-    , whitepagesRecords : Maybe (Result Http.Error (List WhitepagesRecord))
+    , whitepagesEntries : Maybe (Result Http.Error (List WhitepagesEntry))
     , gtedAccounts : Maybe (Result Http.Error (List GtedAccount))
+    , keycloakAccount : Maybe (Result Http.Error (Maybe KeycloakAccount))
+    , events : Maybe (Result Http.Error (List Event))
     }
 
 
@@ -112,6 +131,9 @@ type alias Model =
     , loadingSearchResults : Bool
     , searchResults : Maybe (Result Http.Error SearchResults)
     , selectedUser : Maybe SelectedUser
+    , keycloakDeepLinkBaseUrl : String
+    , zone : Time.Zone
+    , zoneName : Time.ZoneName
     }
 
 
@@ -121,8 +143,12 @@ type Msg
     | SearchQueryInput String
     | SearchRequestSubmitted
     | SearchResultsReceived (Result Http.Error SearchResults)
-    | WhitepagesRecordsReceived (Result Http.Error (List WhitepagesRecord))
+    | WhitepagesEntriesReceived (Result Http.Error (List WhitepagesEntry))
     | GtedAccountsReceived (Result Http.Error (List GtedAccount))
+    | KeycloakAccountReceived (Result Http.Error (Maybe KeycloakAccount))
+    | EventsReceived (Result Http.Error (List Event))
+    | SetZone Time.Zone
+    | SetZoneName Time.ZoneName
     | NoOpMsg
 
 
@@ -145,37 +171,41 @@ main =
 init : Value -> Url.Url -> Nav.Key -> ( Model, Cmd Msg )
 init flags url navKey =
     ( buildInitialModel flags url navKey
-    , case Url.Parser.parse urlParser url of
-        Just SearchBox ->
-            Task.attempt (\_ -> NoOpMsg) (focus "search")
+    , Cmd.batch
+        [ case Url.Parser.parse urlParser url of
+            Just SearchBox ->
+                Task.attempt (\_ -> NoOpMsg) (focus "search")
 
-        Just (ViewSearchResults (Just query)) ->
-            if String.trim query /= "" then
-                Http.post
-                    { url =
-                        Url.Builder.absolute
-                            [ "search" ]
-                            []
-                    , body =
-                        jsonBody
-                            (Json.Encode.object
-                                [ ( "query", Json.Encode.string (String.trim query) )
-                                ]
-                            )
-                    , expect = expectJson SearchResultsReceived searchResultsResponseDecoder
-                    }
+            Just (ViewSearchResults (Just query)) ->
+                if String.trim query /= "" then
+                    Http.post
+                        { url =
+                            Url.Builder.absolute
+                                [ "search" ]
+                                []
+                        , body =
+                            jsonBody
+                                (Json.Encode.object
+                                    [ ( "query", Json.Encode.string (String.trim query) )
+                                    ]
+                                )
+                        , expect = expectJson SearchResultsReceived searchResultsResponseDecoder
+                        }
 
-            else
+                else
+                    Cmd.none
+
+            Just (ViewSearchResults Nothing) ->
                 Cmd.none
 
-        Just (ViewSearchResults Nothing) ->
-            Cmd.none
+            Just (ViewPerson directoryId) ->
+                fetchViewPersonData directoryId
 
-        Just (ViewPerson directoryId) ->
-            fetchViewPersonData directoryId
-
-        Nothing ->
-            Task.attempt (\_ -> NoOpMsg) (focus "search")
+            Nothing ->
+                Task.attempt (\_ -> NoOpMsg) (focus "search")
+        , Task.perform SetZone Time.here
+        , Task.perform SetZoneName Time.getZoneName
+        ]
     )
 
 
@@ -233,7 +263,7 @@ update msg model =
                     case result of
                         Ok searchResults ->
                             if searchResults.exactMatch && List.length searchResults.results == 1 then
-                                Just { directoryId = (Maybe.withDefault { directoryId = "", givenName = "", surname = "", title = Nothing, organizationalUnit = Nothing, primaryAffiliation = Nothing, affiliations = [] } (List.head searchResults.results)).directoryId, whitepagesRecords = Nothing, gtedAccounts = Nothing }
+                                Just { directoryId = (Maybe.withDefault { directoryId = "", givenName = "", surname = "", title = Nothing, organizationalUnit = Nothing, primaryAffiliation = Nothing, affiliations = [] } (List.head searchResults.results)).directoryId, whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, events = Nothing }
 
                             else
                                 Nothing
@@ -253,12 +283,12 @@ update msg model =
                     Nav.pushUrl model.navKey (urlUnparser (ViewSearchResults (Just (String.trim model.searchQuery))))
             )
 
-        WhitepagesRecordsReceived result ->
+        WhitepagesEntriesReceived result ->
             ( { model
                 | selectedUser =
                     case model.selectedUser of
                         Just selectedUser ->
-                            Just { selectedUser | whitepagesRecords = Just result }
+                            Just { selectedUser | whitepagesEntries = Just result }
 
                         Nothing ->
                             Nothing
@@ -272,6 +302,32 @@ update msg model =
                     case model.selectedUser of
                         Just selectedUser ->
                             Just { selectedUser | gtedAccounts = Just result }
+
+                        Nothing ->
+                            Nothing
+              }
+            , Cmd.none
+            )
+
+        KeycloakAccountReceived result ->
+            ( { model
+                | selectedUser =
+                    case model.selectedUser of
+                        Just selectedUser ->
+                            Just { selectedUser | keycloakAccount = Just result }
+
+                        Nothing ->
+                            Nothing
+              }
+            , Cmd.none
+            )
+
+        EventsReceived result ->
+            ( { model
+                | selectedUser =
+                    case model.selectedUser of
+                        Just selectedUser ->
+                            Just { selectedUser | events = Just result }
 
                         Nothing ->
                             Nothing
@@ -300,7 +356,7 @@ update msg model =
                 , selectedUser =
                     case Url.Parser.parse urlParser url of
                         Just (ViewPerson directoryId) ->
-                            Just { directoryId = directoryId, whitepagesRecords = Nothing, gtedAccounts = Nothing }
+                            Just { directoryId = directoryId, whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, events = Nothing }
 
                         _ ->
                             Nothing
@@ -317,6 +373,20 @@ update msg model =
 
                 Nothing ->
                     Cmd.none
+            )
+
+        SetZone zone ->
+            ( { model
+                | zone = zone
+              }
+            , Cmd.none
+            )
+
+        SetZoneName zoneName ->
+            ( { model
+                | zoneName = zoneName
+              }
+            , Cmd.none
             )
 
 
@@ -387,11 +457,16 @@ buildInitialModel serverData url navKey =
                         directoryId
                         Nothing
                         Nothing
+                        Nothing
+                        Nothing
                     )
 
             _ ->
                 Nothing
         )
+        (String.trim (Result.withDefault "" (decodeValue (at [ "keycloakDeepLinkBaseUrl" ] string) serverData)))
+        Time.utc
+        (Time.Name "UTC")
 
 
 searchResultsResponseDecoder : Decoder SearchResults
@@ -413,16 +488,46 @@ searchResultDecoder =
         (at [ "affiliations" ] (Json.Decode.list string))
 
 
-whitepagesResponseDecoder : Decoder (List WhitepagesRecord)
+whitepagesResponseDecoder : Decoder (List WhitepagesEntry)
 whitepagesResponseDecoder =
-    Json.Decode.list whitepagesRecordDecoder
+    Json.Decode.list whitepagesEntryDecoder
 
 
-whitepagesRecordDecoder : Decoder WhitepagesRecord
-whitepagesRecordDecoder =
-    Json.Decode.map2 WhitepagesRecord
+whitepagesEntryDecoder : Decoder WhitepagesEntry
+whitepagesEntryDecoder =
+    Json.Decode.map2 WhitepagesEntry
         (at [ "dn" ] Json.Decode.string)
         (at [ "attributes" ] (Json.Decode.dict (Json.Decode.list string)))
+
+
+keycloakResponseDecoder : Decoder (Maybe KeycloakAccount)
+keycloakResponseDecoder =
+    Json.Decode.maybe
+        (Json.Decode.map3 KeycloakAccount
+            (at [ "id" ] Json.Decode.string)
+            (at [ "enabled" ] Json.Decode.bool)
+            (at [ "attributes" ] (Json.Decode.dict (Json.Decode.list string)))
+        )
+
+
+eventsResponseDecoder : Decoder (List Event)
+eventsResponseDecoder =
+    Json.Decode.list eventDecoder
+
+
+eventTimestampDecoder : Decoder Time.Posix
+eventTimestampDecoder =
+    Json.Decode.map Time.millisToPosix Json.Decode.int
+
+
+eventDecoder : Decoder Event
+eventDecoder =
+    Json.Decode.map5 Event
+        (at [ "actorDisplayName" ] Json.Decode.string)
+        (maybe (at [ "actorLink" ] Json.Decode.string))
+        (at [ "eventDescription" ] Json.Decode.string)
+        (maybe (at [ "eventLink" ] Json.Decode.string))
+        (at [ "eventTimestamp" ] eventTimestampDecoder)
 
 
 gtedResponseDecoder : Decoder (List GtedAccount)
@@ -766,9 +871,9 @@ ignoreSecondaryTitle title =
         && not (String.contains "research technologist" (String.toLower title))
 
 
-ignoreSecondaryWhitepagesRecord : WhitepagesRecord -> Bool
-ignoreSecondaryWhitepagesRecord record =
-    case Dict.get "title" record.attributes of
+ignoreSecondaryWhitepagesEntry : WhitepagesEntry -> Bool
+ignoreSecondaryWhitepagesEntry entry =
+    case Dict.get "title" entry.attributes of
         Just attributeList ->
             List.all ignoreSecondaryTitle attributeList
 
@@ -795,17 +900,17 @@ getSelectedPersonTitle model =
                             Nothing
 
                 Nothing ->
-                    case selectedUser.whitepagesRecords of
+                    case selectedUser.whitepagesEntries of
                         Just result ->
                             case result of
-                                Ok records ->
-                                    if List.isEmpty records then
+                                Ok entries ->
+                                    if List.isEmpty entries then
                                         Nothing
 
-                                    else if List.length records == 1 then
-                                        case List.head records of
-                                            Just record ->
-                                                case Dict.get "title" record.attributes of
+                                    else if List.length entries == 1 then
+                                        case List.head entries of
+                                            Just entry ->
+                                                case Dict.get "title" entry.attributes of
                                                     Just attributeList ->
                                                         List.head attributeList
 
@@ -816,9 +921,9 @@ getSelectedPersonTitle model =
                                                 Nothing
 
                                     else
-                                        case List.head (List.filter ignoreSecondaryWhitepagesRecord records) of
-                                            Just primaryRecord ->
-                                                case Dict.get "title" primaryRecord.attributes of
+                                        case List.head (List.filter ignoreSecondaryWhitepagesEntry entries) of
+                                            Just primaryEntry ->
+                                                case Dict.get "title" primaryEntry.attributes of
                                                     Just attributeList ->
                                                         List.head attributeList
 
@@ -875,11 +980,11 @@ getSelectedPersonOrganizationalUnit model =
                                     Nothing
 
                         Nothing ->
-                            case selectedUser.whitepagesRecords of
+                            case selectedUser.whitepagesEntries of
                                 Just result ->
                                     case result of
-                                        Ok records ->
-                                            if List.isEmpty records then
+                                        Ok entries ->
+                                            if List.isEmpty entries then
                                                 case selectedUser.gtedAccounts of
                                                     Just gtedResult ->
                                                         case gtedResult of
@@ -897,10 +1002,10 @@ getSelectedPersonOrganizationalUnit model =
                                                     Nothing ->
                                                         Nothing
 
-                                            else if List.length records == 1 then
-                                                case List.head records of
-                                                    Just record ->
-                                                        case Dict.get "ou" record.attributes of
+                                            else if List.length entries == 1 then
+                                                case List.head entries of
+                                                    Just entry ->
+                                                        case Dict.get "ou" entry.attributes of
                                                             Just attributeList ->
                                                                 List.head attributeList
 
@@ -911,9 +1016,9 @@ getSelectedPersonOrganizationalUnit model =
                                                         Nothing
 
                                             else
-                                                case List.head (List.filter ignoreSecondaryWhitepagesRecord records) of
-                                                    Just primaryRecord ->
-                                                        case Dict.get "ou" primaryRecord.attributes of
+                                                case List.head (List.filter ignoreSecondaryWhitepagesEntry entries) of
+                                                    Just primaryEntry ->
+                                                        case Dict.get "ou" primaryEntry.attributes of
                                                             Just attributeList ->
                                                                 List.head attributeList
 
@@ -943,7 +1048,7 @@ fetchViewPersonData directoryId =
                 Url.Builder.absolute
                     [ "view", directoryId, "whitepages" ]
                     []
-            , expect = expectJson WhitepagesRecordsReceived whitepagesResponseDecoder
+            , expect = expectJson WhitepagesEntriesReceived whitepagesResponseDecoder
             }
         , Http.get
             { url =
@@ -952,14 +1057,28 @@ fetchViewPersonData directoryId =
                     []
             , expect = expectJson GtedAccountsReceived gtedResponseDecoder
             }
+        , Http.get
+            { url =
+                Url.Builder.absolute
+                    [ "view", directoryId, "keycloak" ]
+                    []
+            , expect = expectJson KeycloakAccountReceived keycloakResponseDecoder
+            }
+        , Http.get
+            { url =
+                Url.Builder.absolute
+                    [ "view", directoryId, "events" ]
+                    []
+            , expect = expectJson EventsReceived eventsResponseDecoder
+            }
         ]
 
 
-whitepagesRecordToEmployeeTypePill : WhitepagesRecord -> Html Msg
-whitepagesRecordToEmployeeTypePill record =
+whitepagesEntryToEmployeeTypePill : WhitepagesEntry -> Html Msg
+whitepagesEntryToEmployeeTypePill entry =
     span [ class "badge", class "rounded-pill", class "text-bg-primary", class "me-1" ]
         [ text
-            (case Dict.get "employeeType" record.attributes of
+            (case Dict.get "employeeType" entry.attributes of
                 Just attributeList ->
                     case List.head attributeList of
                         Just employeeType ->
@@ -996,7 +1115,7 @@ viewPerson model =
                                     False
 
                                 Nothing ->
-                                    case selectedUser.whitepagesRecords of
+                                    case selectedUser.whitepagesEntries of
                                         Just (Ok []) ->
                                             False
 
@@ -1020,7 +1139,7 @@ viewPerson model =
                                     False
 
                                 Nothing ->
-                                    case selectedUser.whitepagesRecords of
+                                    case selectedUser.whitepagesEntries of
                                         Just (Ok []) ->
                                             case selectedUser.gtedAccounts of
                                                 Just _ ->
@@ -1085,7 +1204,7 @@ viewPerson model =
              )
                 ++ (case model.selectedUser of
                         Just selectedUser ->
-                            case selectedUser.whitepagesRecords of
+                            case selectedUser.whitepagesEntries of
                                 Just (Err (BadStatus 404)) ->
                                     []
 
@@ -1097,16 +1216,88 @@ viewPerson model =
                                                     errorMessage
 
                                                 Timeout ->
-                                                    "There was a timeout while retrieving Whitepages records."
+                                                    "There was a timeout while retrieving Whitepages entries."
 
                                                 NetworkError ->
-                                                    "There was a network error while retrieving Whitepages records."
+                                                    "There was a network error while retrieving Whitepages entries."
 
                                                 BadStatus statusCode ->
-                                                    "The server returned status code " ++ String.fromInt statusCode ++ " white retrieving Whitepages records."
+                                                    "The server returned status code " ++ String.fromInt statusCode ++ " white retrieving Whitepages entries."
 
                                                 BadBody errorMessage ->
-                                                    "There was an error parsing Whitepages records: " ++ errorMessage ++ "."
+                                                    "There was an error parsing Whitepages entries: " ++ errorMessage ++ "."
+                                             )
+                                                ++ " Reload the page to try again."
+                                            )
+                                        ]
+                                    ]
+
+                                _ ->
+                                    []
+
+                        Nothing ->
+                            []
+                   )
+                ++ (case model.selectedUser of
+                        Just selectedUser ->
+                            case selectedUser.keycloakAccount of
+                                Just (Err (BadStatus 404)) ->
+                                    []
+
+                                Just (Err err) ->
+                                    [ div [ class "alert", class "alert-danger" ]
+                                        [ text
+                                            ((case err of
+                                                BadUrl errorMessage ->
+                                                    errorMessage
+
+                                                Timeout ->
+                                                    "There was a timeout while retrieving the Keycloak account."
+
+                                                NetworkError ->
+                                                    "There was a network error while retrieving the Keycloak account."
+
+                                                BadStatus statusCode ->
+                                                    "The server returned status code " ++ String.fromInt statusCode ++ " white retrieving the Keycloak account."
+
+                                                BadBody errorMessage ->
+                                                    "There was an error parsing the Keycloak account: " ++ errorMessage ++ "."
+                                             )
+                                                ++ " Reload the page to try again."
+                                            )
+                                        ]
+                                    ]
+
+                                _ ->
+                                    []
+
+                        Nothing ->
+                            []
+                   )
+                ++ (case model.selectedUser of
+                        Just selectedUser ->
+                            case selectedUser.events of
+                                Just (Err (BadStatus 404)) ->
+                                    []
+
+                                Just (Err err) ->
+                                    [ div [ class "alert", class "alert-danger" ]
+                                        [ text
+                                            ((case err of
+                                                BadUrl errorMessage ->
+                                                    errorMessage
+
+                                                Timeout ->
+                                                    "There was a timeout while retrieving events."
+
+                                                NetworkError ->
+                                                    "There was a network error while retrieving events."
+
+                                                BadStatus statusCode ->
+                                                    "The server returned status code " ++ String.fromInt statusCode ++ " white retrieving events."
+
+                                                BadBody errorMessage ->
+                                                    "There was an error parsing events: " ++ errorMessage ++ "."
                                              )
                                                 ++ " Reload the page to try again."
                                             )
@@ -1195,24 +1386,24 @@ viewPerson model =
                             [ div [ class "card" ]
                                 [ div [ class "card-body" ]
                                     ([ h6 [] [ text "Whitepages" ]
-                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesRecords = Nothing, gtedAccounts = Nothing } model.selectedUser).directoryId, "whitepages" ] []), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View raw" ]
+                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, events = Nothing } model.selectedUser).directoryId, "whitepages" ] []), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View raw" ]
                                      ]
                                         ++ (case model.selectedUser of
                                                 Just selectedUser ->
-                                                    case selectedUser.whitepagesRecords of
+                                                    case selectedUser.whitepagesEntries of
                                                         Just (Err _) ->
                                                             []
 
-                                                        Just (Ok records) ->
-                                                            case List.length records of
+                                                        Just (Ok entries) ->
+                                                            case List.length entries of
                                                                 0 ->
-                                                                    [ div [] [ text "No records" ] ]
+                                                                    [ div [] [ text "No entries" ] ]
 
                                                                 1 ->
-                                                                    [ div [ class "mb-1" ] [ text "1 record" ] ]
+                                                                    [ div [ class "mb-1" ] [ text "1 entry" ] ]
 
                                                                 _ ->
-                                                                    [ div [ class "mb-1" ] [ text (String.fromInt (List.length records) ++ " records") ] ]
+                                                                    [ div [ class "mb-1" ] [ text (String.fromInt (List.length entries) ++ " entries") ] ]
 
                                                         Nothing ->
                                                             [ div [ class "placeholder-wave", class "mb-1" ] [ span [ class "placeholder", class "col-1" ] [] ] ]
@@ -1222,12 +1413,12 @@ viewPerson model =
                                            )
                                         ++ (case model.selectedUser of
                                                 Just selectedUser ->
-                                                    case selectedUser.whitepagesRecords of
+                                                    case selectedUser.whitepagesEntries of
                                                         Just (Err _) ->
                                                             []
 
-                                                        Just (Ok records) ->
-                                                            [ div [] (List.map whitepagesRecordToEmployeeTypePill records) ]
+                                                        Just (Ok entries) ->
+                                                            [ div [] (List.map whitepagesEntryToEmployeeTypePill entries) ]
 
                                                         Nothing ->
                                                             [ div [ class "placeholder-wave" ] [ span [ class "placeholder", class "rounded-pill", class "col-1" ] [] ] ]
@@ -1242,7 +1433,8 @@ viewPerson model =
                             [ div [ class "card" ]
                                 [ div [ class "card-body" ]
                                     ([ h6 [] [ text "GTED" ]
-                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesRecords = Nothing, gtedAccounts = Nothing } model.selectedUser).directoryId, "gted" ] []), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View raw" ]
+                                     , a [ target "_blank", href ("https://iat.gatech.edu/prod/person/" ++ (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, events = Nothing } model.selectedUser).directoryId), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View in IAT" ]
+                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, events = Nothing } model.selectedUser).directoryId, "gted" ] []), class "position-absolute", style "top" "36px", style "right" "14px" ] [ text "View raw" ]
                                      ]
                                         ++ (case model.selectedUser of
                                                 Just selectedUser ->
@@ -1250,8 +1442,8 @@ viewPerson model =
                                                         Just (Err _) ->
                                                             []
 
-                                                        Just (Ok records) ->
-                                                            case List.length records of
+                                                        Just (Ok entries) ->
+                                                            case List.length entries of
                                                                 0 ->
                                                                     [ div [] [ text "No accounts" ] ]
 
@@ -1259,7 +1451,7 @@ viewPerson model =
                                                                     [ div [ class "mb-1" ] [ text "1 account" ] ]
 
                                                                 _ ->
-                                                                    [ div [ class "mb-1" ] [ text (String.fromInt (List.length records) ++ " accounts") ] ]
+                                                                    [ div [ class "mb-1" ] [ text (String.fromInt (List.length entries) ++ " accounts") ] ]
 
                                                         Nothing ->
                                                             [ div [ class "placeholder-wave", class "mb-1" ] [ span [ class "placeholder", class "col-1" ] [] ] ]
@@ -1293,8 +1485,184 @@ viewPerson model =
                                     )
                                 ]
                             ]
+                        , div [ class "col-3" ]
+                            [ div [ class "card" ]
+                                [ div [ class "card-body" ]
+                                    ([ h6 [] [ text "Keycloak" ]
+                                     , a [ target "_blank", href (model.keycloakDeepLinkBaseUrl ++ getKeycloakUserId model ++ "/settings"), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View in Keycloak" ]
+                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, events = Nothing } model.selectedUser).directoryId, "keycloak" ] []), class "position-absolute", style "top" "36px", style "right" "14px" ] [ text "View raw" ]
+                                     ]
+                                        ++ (case model.selectedUser of
+                                                Just selectedUser ->
+                                                    case selectedUser.keycloakAccount of
+                                                        Just (Err _) ->
+                                                            []
+
+                                                        Just (Ok (Just _)) ->
+                                                            [ div [ class "mb-1" ] [ text "1 account" ] ]
+
+                                                        Just (Ok Nothing) ->
+                                                            [ div [] [ text "No account" ] ]
+
+                                                        Nothing ->
+                                                            [ div [ class "placeholder-wave", class "mb-1" ] [ span [ class "placeholder", class "col-1" ] [] ] ]
+
+                                                Nothing ->
+                                                    []
+                                           )
+                                        ++ (case model.selectedUser of
+                                                Just selectedUser ->
+                                                    case selectedUser.keycloakAccount of
+                                                        Just (Err _) ->
+                                                            []
+
+                                                        Just (Ok (Just account)) ->
+                                                            if account.enabled then
+                                                                [ span [ class "badge", class "rounded-pill", class "text-bg-primary", class "me-1" ] [ text "enabled" ] ]
+
+                                                            else
+                                                                [ span [ class "badge", class "rounded-pill", class "text-bg-secondary", class "me-1" ] [ text "disabled" ] ]
+
+                                                        Just (Ok Nothing) ->
+                                                            []
+
+                                                        Nothing ->
+                                                            [ div [ class "placeholder-wave" ] [ span [ class "placeholder", class "rounded-pill", class "col-1" ] [] ] ]
+
+                                                Nothing ->
+                                                    []
+                                           )
+                                    )
+                                ]
+                            ]
+                        ]
+                   , h5 [ class "mt-4", class "mb-3" ] [ text "Events " ]
+                   , div [ class "row" ]
+                        [ table [ class "table" ]
+                            [ tbody []
+                                (case model.selectedUser of
+                                    Just selectedUser ->
+                                        case selectedUser.events of
+                                            Just (Ok events) ->
+                                                List.map (eventToHtmlRow model.zone model.zoneName) (List.sortWith sortByEventTimestamp events)
+
+                                            _ ->
+                                                []
+
+                                    _ ->
+                                        []
+                                )
+                            ]
                         ]
                    ]
             )
         ]
     }
+
+
+getKeycloakUserId : Model -> String
+getKeycloakUserId model =
+    case model.selectedUser of
+        Just selectedUser ->
+            case selectedUser.keycloakAccount of
+                Just (Ok (Just keycloakAccount)) ->
+                    keycloakAccount.id
+
+                _ ->
+                    ""
+
+        _ ->
+            ""
+
+
+eventToHtmlRow : Time.Zone -> Time.ZoneName -> Event -> Html msg
+eventToHtmlRow zone zoneName event =
+    tr
+        []
+        [ td []
+            [ abbr
+                [ title
+                    (case zoneName of
+                        Name name ->
+                            name
+
+                        Offset offset ->
+                            if offset > 0 then
+                                "UTC+" ++ String.fromFloat (toFloat offset / 60)
+
+                            else
+                                "UTC" ++ String.fromFloat (toFloat offset / 60)
+                    )
+                ]
+                [ text
+                    ((((case toMonth zone event.eventTimestamp of
+                            Jan ->
+                                "January"
+
+                            Feb ->
+                                "February"
+
+                            Mar ->
+                                "March"
+
+                            Apr ->
+                                "April"
+
+                            May ->
+                                "May"
+
+                            Jun ->
+                                "June"
+
+                            Jul ->
+                                "July"
+
+                            Aug ->
+                                "August"
+
+                            Sep ->
+                                "September"
+
+                            Oct ->
+                                "October"
+
+                            Nov ->
+                                "November"
+
+                            Dec ->
+                                "December"
+                       )
+                        ++ " "
+                        ++ String.fromInt (toDay zone event.eventTimestamp)
+                      )
+                        ++ ", "
+                        ++ String.fromInt (toYear zone event.eventTimestamp)
+                        ++ " "
+                        ++ String.padLeft 2 '0' (String.fromInt (toHour zone event.eventTimestamp))
+                     )
+                        ++ ":"
+                        ++ String.padLeft 2 '0' (String.fromInt (toMinute zone event.eventTimestamp))
+                    )
+                ]
+            ]
+        , td []
+            [ case event.actorLink of
+                Just link ->
+                    a [ href link, target "_blank" ] [ text event.actorDisplayName ]
+
+                Nothing ->
+                    text event.actorDisplayName
+            , text " "
+            , case event.eventLink of
+                Just link ->
+                    a [ href link, target "_blank" ] [ text event.eventDescription ]
+
+                Nothing ->
+                    text event.eventDescription
+            ]
+        ]
+
+
+sortByEventTimestamp : Event -> Event -> Order
+sortByEventTimestamp first second =
+    compare (Time.posixToMillis second.eventTimestamp) (Time.posixToMillis first.eventTimestamp)

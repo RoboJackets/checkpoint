@@ -9,6 +9,7 @@ from email.errors import InvalidHeaderDefect
 from email.headerregistry import Address
 from hashlib import file_digest
 from json import loads
+from os import environ
 from re import IGNORECASE, fullmatch
 from sqlite3 import connect
 from typing import Any, Dict, List, Union
@@ -47,6 +48,8 @@ req_log.setLevel(logging.DEBUG)
 req_log.propagate = True
 
 GEORGIA_TECH_USERNAME_REGEX = r"[a-zA-Z]+[0-9]+"
+
+USER_AGENT = "Checkpoint/" + environ.get("NOMAD_SHORT_ALLOC_ID", "local")
 
 
 def traces_sampler(sampling_context: Dict[str, Dict[str, str]]) -> bool:
@@ -101,6 +104,7 @@ keycloak = OAuth2Session(
     ),
     leeway=5,
 )
+keycloak.headers["User-Agent"] = USER_AGENT
 keycloak.fetch_token()
 
 apiary = OAuth2Session(
@@ -108,6 +112,7 @@ apiary = OAuth2Session(
     client_secret=app.config["APIARY_CLIENT_SECRET"],
     token_endpoint=app.config["APIARY_BASE_URL"] + "/oauth/token",
 )
+apiary.headers["User-Agent"] = USER_AGENT
 apiary.fetch_token()
 
 cache = Cache(app)
@@ -155,6 +160,21 @@ def build_ldap_filter(**kwargs: str) -> str:
     return search_filter
 
 
+def build_keycloak_filter(**kwargs: str) -> str:
+    """
+    Builds up a Keycloak filter from kwargs
+
+    :param kwargs: Dict of attribute name, value pairs
+    :return: Keycloak search query representation of the dict
+    """
+    filters = []
+
+    for name, value in kwargs.items():
+        filters.append(f"{name}:{value}")
+
+    return " ".join(filters)
+
+
 def get_attribute_value(
     attribute_name: str, entry: Dict[str, Dict[str, List[str]]]
 ) -> Union[str, None]:
@@ -172,7 +192,7 @@ def get_attribute_value(
     return None
 
 
-def get_buzzapi_primary_account(**kwargs: str) -> Union[Dict[str, Any], None]:
+def get_gted_primary_account(**kwargs: str) -> Union[Dict[str, Any], None]:
     """
     Get the primary account for a user matching the provided kwargs
     """
@@ -216,8 +236,14 @@ def search_gted(**kwargs: str) -> List[Dict[str, Any]]:
         }
         | kwargs,
         timeout=(5, 30),
+        headers={
+            "User-Agent": USER_AGENT,
+        },
     )
     buzzapi_response.raise_for_status()
+
+    if "api_result_data" not in buzzapi_response.json():
+        return []
 
     for account in buzzapi_response.json()["api_result_data"]:
         db().execute(
@@ -235,8 +261,7 @@ def search_gted(**kwargs: str) -> List[Dict[str, Any]]:
             (
                 "INSERT INTO crosswalk_email_address (email_address, gt_person_directory_id)"  # noqa
                 " VALUES (:email_address, :gt_person_directory_id)"
-                " ON CONFLICT DO UPDATE SET gt_person_directory_id = (:gt_person_directory_id) WHERE email_address = (:email_address)"
-            # noqa
+                " ON CONFLICT DO UPDATE SET gt_person_directory_id = (:gt_person_directory_id) WHERE email_address = (:email_address)"  # noqa
             ),
             {
                 "email_address": account["mail"],
@@ -260,8 +285,6 @@ def search_whitepages(**kwargs: str) -> List[Dict[str, Dict[str, List[str]]]]:
             receive_timeout=1,
             return_empty_attributes=False,
         )
-
-    print(build_ldap_filter(**kwargs))
 
     with sentry_sdk.start_span(op="whitepages.search"):
         # the normal .search function does not allow sending blank attributes in the request,
@@ -289,11 +312,239 @@ def search_whitepages(**kwargs: str) -> List[Dict[str, Dict[str, List[str]]]]:
     records = []
 
     for entry in whitepages.entries:
-        records.append(loads(entry.entry_to_json()))
+        record = loads(entry.entry_to_json())
 
-    # TODO store results in Crosswalk  # pylint: disable=fixme
+        records.append(record)
+
+        username = get_attribute_value("primaryUid", record)
+        mail = get_attribute_value("mail", record)
+
+        if username is not None and mail is not None:
+            cursor = db().execute(
+                "SELECT gt_person_directory_id FROM crosswalk WHERE primary_username = (:username)",
+                {"username": username},
+            )
+            row = cursor.fetchone()
+
+            if row is not None:
+                db().execute(
+                    (
+                        "INSERT INTO crosswalk_email_address (email_address, gt_person_directory_id)"  # noqa
+                        " VALUES (:email_address, :gt_person_directory_id)"
+                        " ON CONFLICT DO UPDATE SET gt_person_directory_id = (:gt_person_directory_id) WHERE email_address = (:email_address)"  # noqa
+                    ),
+                    {
+                        "email_address": mail,
+                        "gt_person_directory_id": row[0],
+                    },
+                )
 
     return records
+
+
+@cache.cached(key_prefix="realms")
+def get_realms() -> List[Dict[str, Any]]:
+    """
+    Get realm information from Keycloak
+    """
+    keycloak_response = keycloak.get(
+        url=urlunparse(
+            (
+                urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,
+                urlparse(app.config["KEYCLOAK_METADATA_URL"]).hostname,
+                "/admin/realms",
+                "",
+                "",
+                "",
+            )
+        ),
+        timeout=(5, 5),
+    )
+    keycloak_response.raise_for_status()
+
+    return keycloak_response.json()  # type: ignore
+
+
+@cache.memoize()
+def get_actor(**kwargs: str) -> Dict[str, str]:
+    """
+    Get the display name and link for an event actor
+    """
+    if "gtPersonDirectoryId" in kwargs or "uid" in kwargs:
+        gted_account = get_gted_primary_account(**kwargs)
+
+        if gted_account is None:
+            raise InternalServerError(
+                "Failed to locate GTED account with given " + list(dict.keys(kwargs))[0]
+            )
+
+        return {
+            "actorDisplayName": gted_account["givenName"] + " " + gted_account["sn"],
+            "actorLink": "/view/" + gted_account["gtPersonDirectoryId"],
+        }
+
+    if "realmId" in kwargs and "userId" in kwargs:
+        for realm in get_realms():
+            if kwargs["realmId"] == realm["id"]:
+                keycloak_response = keycloak.get(
+                    url=urlunparse(
+                        (
+                            urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,
+                            urlparse(app.config["KEYCLOAK_METADATA_URL"]).hostname,
+                            "/admin/realms/" + realm["realm"] + "/users/" + kwargs["userId"],
+                            "",
+                            "",
+                            "",
+                        )
+                    ),
+                    timeout=(5, 5),
+                )
+                keycloak_response.raise_for_status()
+
+                if (
+                    fullmatch(
+                        GEORGIA_TECH_USERNAME_REGEX,
+                        keycloak_response.json()["username"],
+                        IGNORECASE,
+                    )
+                    is not None
+                ):
+                    return get_actor(uid=keycloak_response.json()["username"])  # type: ignore
+
+                return {
+                    "actorDisplayName": keycloak_response.json()["username"],
+                    "actorLink": urlunparse(
+                        (
+                            urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,
+                            urlparse(app.config["KEYCLOAK_METADATA_URL"]).hostname,
+                            "/admin/master/console/",
+                            "",
+                            "",
+                            "/"
+                            + realm["realm"]
+                            + "/users/"
+                            + keycloak_response.json()["id"]
+                            + "/settings",
+                        )
+                    ),
+                }
+
+    raise InternalServerError("Unable to identify actor")
+
+
+def get_client_display_name(auth_details: Dict[str, str]) -> str:
+    """
+    Get the display name for a client from a Keycloak event
+    """
+    if "realmId" in auth_details and "clientId" in auth_details:
+        for realm in get_realms():
+            if auth_details["realmId"] == realm["id"]:
+                keycloak_response = keycloak.get(
+                    url=urlunparse(
+                        (
+                            urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,
+                            urlparse(app.config["KEYCLOAK_METADATA_URL"]).hostname,
+                            "/admin/realms/"
+                            + realm["realm"]
+                            + "/clients/"
+                            + auth_details["clientId"],
+                            "",
+                            "",
+                            "",
+                        )
+                    ),
+                    timeout=(5, 5),
+                )
+                keycloak_response.raise_for_status()
+
+                print(keycloak_response.text)
+
+                return keycloak_response.json()["clientId"]  # type: ignore
+
+    raise InternalServerError("Unable to identify client")
+
+
+def search_keycloak(**kwargs: Union[str, bool]) -> List[Dict[str, Any]]:
+    """
+    Search Keycloak for accounts matching criteria specified in kwargs
+    """
+    keycloak_response = keycloak.get(
+        url=urlunparse(
+            (
+                urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,
+                urlparse(app.config["KEYCLOAK_METADATA_URL"]).hostname,
+                "/admin/realms/" + app.config["KEYCLOAK_REALM"] + "/users",
+                "",
+                "",
+                "",
+            )
+        ),
+        params=kwargs,
+        timeout=(5, 5),
+    )
+    keycloak_response.raise_for_status()
+
+    for account in keycloak_response.json():
+        cursor = db().execute(
+            "SELECT gt_person_directory_id FROM crosswalk WHERE primary_username = (:username)",
+            {"username": account["username"]},
+        )
+        row = cursor.fetchone()
+
+        if row is not None:
+            db().execute(
+                (
+                    "UPDATE crosswalk SET keycloak_user_id = (:keycloak_user_id) WHERE gt_person_directory_id = (:gt_person_directory_id)"  # noqa
+                ),
+                {
+                    "keycloak_user_id": account["id"],
+                    "gt_person_directory_id": row[0],
+                },
+            )
+
+            db().execute(
+                (
+                    "INSERT INTO crosswalk_email_address (email_address, gt_person_directory_id)"
+                    " VALUES (:email_address, :gt_person_directory_id)"
+                    " ON CONFLICT DO UPDATE SET gt_person_directory_id = (:gt_person_directory_id) WHERE email_address = (:email_address)"  # noqa
+                ),
+                {
+                    "email_address": account["email"],
+                    "gt_person_directory_id": row[0],
+                },
+            )
+
+            workspace_email = get_attribute_value("googleWorkspaceAccount", account)
+
+            if workspace_email is not None:
+                db().execute(
+                    (
+                        "INSERT INTO crosswalk_email_address (email_address, gt_person_directory_id)"  # noqa
+                        " VALUES (:email_address, :gt_person_directory_id)"
+                        " ON CONFLICT DO UPDATE SET gt_person_directory_id = (:gt_person_directory_id) WHERE email_address = (:email_address)"  # noqa
+                    ),
+                    {
+                        "email_address": workspace_email,
+                        "gt_person_directory_id": row[0],
+                    },
+                )
+
+            ramp_email = get_attribute_value("rampLoginEmailAddress", account)
+
+            if ramp_email is not None:
+                db().execute(
+                    (
+                        "INSERT INTO crosswalk_email_address (email_address, gt_person_directory_id)"  # noqa
+                        " VALUES (:email_address, :gt_person_directory_id)"
+                        " ON CONFLICT DO UPDATE SET gt_person_directory_id = (:gt_person_directory_id) WHERE email_address = (:email_address)"  # noqa
+                    ),
+                    {
+                        "email_address": ramp_email,
+                        "gt_person_directory_id": row[0],
+                    },
+                )
+
+    return keycloak_response.json()  # type: ignore
 
 
 def clean_affiliations(affiliations: List[str]) -> List[str]:
@@ -317,7 +568,7 @@ def clean_affiliations(affiliations: List[str]) -> List[str]:
 
 
 def format_search_result(
-    buzzapi_account: Dict[str, Any], whitepages_entries: List[Dict[str, Dict[str, List[str]]]]
+    gted_account: Dict[str, Any], whitepages_entries: List[Dict[str, Dict[str, List[str]]]]
 ) -> Dict[str, Union[Any, None]]:
     """
     Format a search result for the UI
@@ -347,7 +598,7 @@ def format_search_result(
                 if title is not None:
                     raise InternalServerError(
                         "Selected multiple Whitepages entries to display in results for "
-                        + buzzapi_account["gtPrimaryGTAccountUsername"]
+                        + gted_account["gtPrimaryGTAccountUsername"]
                     )
 
                 title = entry["attributes"]["title"][0]
@@ -355,15 +606,15 @@ def format_search_result(
                 organizational_unit = get_attribute_value("ou", entry)
 
     return {
-        "givenName": buzzapi_account["givenName"],
-        "surname": buzzapi_account["sn"],
-        "directoryId": buzzapi_account["gtPersonDirectoryId"],
+        "givenName": gted_account["givenName"],
+        "surname": gted_account["sn"],
+        "directoryId": gted_account["gtPersonDirectoryId"],
         "primaryAffiliation": (
-            buzzapi_account["eduPersonPrimaryAffiliation"]
-            if buzzapi_account["eduPersonPrimaryAffiliation"] != "member"
+            gted_account["eduPersonPrimaryAffiliation"]
+            if gted_account["eduPersonPrimaryAffiliation"] != "member"
             else None
         ),
-        "affiliations": clean_affiliations(buzzapi_account["eduPersonScopedAffiliation"]),
+        "affiliations": clean_affiliations(gted_account["eduPersonScopedAffiliation"]),
         "title": title,
         "organizationalUnit": organizational_unit,
     }
@@ -443,7 +694,16 @@ def spa(directory_id: Union[str, None] = None) -> Any:  # pylint: disable=unused
         elm_model={
             "username": session["username"],
             "majors": get_majors(),
-            # TODO check if user has IAT access and (likely) network connectivity to IAT  # pylint: disable=fixme  # noqa
+            "keycloakDeepLinkBaseUrl": urlunparse(
+                (
+                    urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,
+                    urlparse(app.config["KEYCLOAK_METADATA_URL"]).hostname,
+                    "/admin/master/console/",
+                    "",
+                    "",
+                    "/" + app.config["KEYCLOAK_REALM"] + "/users/",
+                )
+            ),
         },
     )
 
@@ -472,14 +732,36 @@ def login() -> Any:
 
     session["has_access"] = "roles" in userinfo and "access" in userinfo["roles"]
 
-    if session["has_access"]:
-        # TODO check if user has IAT access  # pylint: disable=fixme
-        pass
-
     return redirect(session["next"])
 
 
+def search_by_username(username: str) -> Dict[str, Any]:
+    """
+    Search for a person by username
+    """
+    gted_account = get_gted_primary_account(uid=username)
+
+    if gted_account is None:
+        return {
+            "results": [],
+            "exactMatch": True,
+        }
+
+    return {
+        "results": [
+            format_search_result(
+                gted_account,
+                search_whitepages(uid=gted_account["gtPrimaryGTAccountUsername"]),
+            ),
+        ],
+        "exactMatch": True,
+    }
+
+
 def search_by_email(email_address: Address) -> Dict[str, Any]:
+    """
+    Search for a person by email address
+    """
     # search crosswalk by email
     cursor = db().execute(
         "SELECT gt_person_directory_id FROM crosswalk_email_address WHERE email_address = (:email_address)",  # noqa
@@ -489,18 +771,16 @@ def search_by_email(email_address: Address) -> Dict[str, Any]:
 
     if row is not None:
         # found person in crosswalk, return that
-        buzzapi_account = get_buzzapi_primary_account(gtPersonDirectoryId=row[0])
+        gted_account = get_gted_primary_account(gtPersonDirectoryId=row[0])
 
-        if buzzapi_account is None:
-            raise InternalServerError(
-                "gtPersonDirectoryId from Crosswalk was not found in BuzzAPI"
-            )
+        if gted_account is None:
+            raise InternalServerError("gtPersonDirectoryId from Crosswalk was not found in GTED")
 
         return {
             "results": [
                 format_search_result(
-                    buzzapi_account,
-                    search_whitepages(uid=buzzapi_account["gtPrimaryGTAccountUsername"]),
+                    gted_account,
+                    search_whitepages(uid=gted_account["gtPrimaryGTAccountUsername"]),
                 ),
             ],
             "exactMatch": True,
@@ -520,67 +800,61 @@ def search_by_email(email_address: Address) -> Dict[str, Any]:
     if uid is None:
         # whitepages doesn't have email, check if the username looks like a GT username
         if (
-            fullmatch(GEORGIA_TECH_USERNAME_REGEX, email_address.username, IGNORECASE)
-            is not None
+            fullmatch(GEORGIA_TECH_USERNAME_REGEX, email_address.username, IGNORECASE) is not None
             and email_address.domain == "gatech.edu"
         ):
-            # search crosswalk by username
-            cursor = db().execute(
-                "SELECT gt_person_directory_id FROM crosswalk WHERE primary_username = (:username)",  # noqa
-                {"username": email_address.username},
-            )
-            row = cursor.fetchone()
+            username_results = search_by_username(email_address.username)
 
-            if row is not None:
-                # found person in crosswalk, return that
-                buzzapi_account = get_buzzapi_primary_account(gtPersonDirectoryId=row[0])
+            if len(username_results["results"]) > 0:
+                return username_results
 
-                if buzzapi_account is None:
-                    raise InternalServerError(
-                        "gtPersonDirectoryId from Crosswalk was not found in BuzzAPI"
-                    )
+    keycloak_results = search_keycloak(email=email_address.addr_spec, exact=True)
 
-                return {
-                    "results": [
-                        format_search_result(
-                            buzzapi_account,
-                            search_whitepages(
-                                uid=buzzapi_account["gtPrimaryGTAccountUsername"]
-                            ),
-                        ),
-                    ],
-                    "exactMatch": True,
-                }
+    if len(keycloak_results) > 0:
+        return search_by_username(keycloak_results[0]["username"])
 
-            # search whitepages by username
-            entries = search_whitepages(uid=email_address.username)
+    keycloak_results = search_keycloak(
+        q=build_keycloak_filter(googleWorkspaceAccount=email_address.addr_spec)
+    )
 
-            uid = None
+    if len(keycloak_results) > 0:
+        return search_by_username(keycloak_results[0]["username"])
 
-            for entry in entries:
-                this_uid = get_attribute_value("primaryUid", entry)
+    keycloak_results = search_keycloak(
+        q=build_keycloak_filter(rampLoginEmailAddress=email_address.addr_spec)
+    )
 
-                if this_uid is not None:
-                    uid = this_uid
+    if len(keycloak_results) > 0:
+        return search_by_username(keycloak_results[0]["username"])
 
-            if uid is not None:
-                # found person in whitepages, return that
-                buzzapi_account = get_buzzapi_primary_account(uid=email_address.username)
+    gted_account = get_gted_primary_account(filter=build_ldap_filter(mail=email_address.addr_spec))
 
-                if buzzapi_account is None:
-                    raise InternalServerError("Account found in Whitepages but not BuzzAPI")
+    if gted_account is not None:
+        return {
+            "results": [
+                format_search_result(
+                    gted_account, search_whitepages(uid=gted_account["gtPrimaryGTAccountUsername"])
+                ),
+            ],
+            "exactMatch": True,
+        }
 
-                return {
-                    "results": [
-                        format_search_result(buzzapi_account, entries),
-                    ],
-                    "exactMatch": True,
-                }
+    gted_account = get_gted_primary_account(
+        filter=build_ldap_filter(gtSecondaryMailAdddress=email_address.addr_spec)
+    )
 
-    return {
-        "results": [],
-        "exactMatch": True
-    }
+    if gted_account is not None:
+        return {
+            "results": [
+                format_search_result(
+                    gted_account, search_whitepages(uid=gted_account["gtPrimaryGTAccountUsername"])
+                ),
+            ],
+            "exactMatch": True,
+        }
+
+    return {"results": [], "exactMatch": True}
+
 
 @app.post("/search")
 def search() -> (
@@ -603,99 +877,7 @@ def search() -> (
     except InvalidHeaderDefect:
         # check if the query is formatted like a GT username
         if fullmatch(GEORGIA_TECH_USERNAME_REGEX, query, IGNORECASE) is not None:
-            cursor = db().execute(
-                "SELECT gt_person_directory_id FROM crosswalk WHERE primary_username = (:username)",
-                {"username": query},
-            )
-            row = cursor.fetchone()
-
-            if row is not None:
-                buzzapi_account = get_buzzapi_primary_account(gtPersonDirectoryId=row[0])
-
-                if buzzapi_account is None:
-                    raise InternalServerError(  # pylint: disable=raise-missing-from
-                        "gtPersonDirectoryId from Crosswalk was not found in BuzzAPI"
-                    )
-
-                return {
-                    "results": [
-                        format_search_result(buzzapi_account, search_whitepages(uid=query)),
-                    ],
-                    "exactMatch": True,
-                }
-
-            entries = search_whitepages(uid=query)
-
-            uid = None
-            mails = set()
-
-            for entry in entries:
-                this_uid = get_attribute_value("primaryUid", entry)
-
-                if this_uid is not None:
-                    uid = this_uid
-
-                this_mail = get_attribute_value("mail", entry)
-
-                if this_mail is not None:
-                    mails.add(this_mail)
-
-            if uid is None:
-                return {
-                    "results": [],
-                    "exactMatch": True,
-                }
-
-            buzzapi_account = get_buzzapi_primary_account(uid=uid)
-
-            if buzzapi_account is None:
-                raise InternalServerError(  # pylint: disable=raise-missing-from
-                    "Account found in Whitepages but not BuzzAPI"
-                )
-
-            db().execute(
-                (
-                    "INSERT INTO crosswalk (gt_person_directory_id, gtid, primary_username)"
-                    " VALUES (:gt_person_directory_id, :gtid, :primary_username)"
-                    " ON CONFLICT DO NOTHING"
-                ),
-                {
-                    "gt_person_directory_id": buzzapi_account["gtPersonDirectoryId"],
-                    "gtid": buzzapi_account["gtGTID"],
-                    "primary_username": buzzapi_account["gtPrimaryGTAccountUsername"],
-                },
-            )
-            db().execute(
-                (
-                    "INSERT INTO crosswalk_email_address (email_address, gt_person_directory_id)"
-                    " VALUES (:email_address, :gt_person_directory_id)"
-                    " ON CONFLICT DO UPDATE SET gt_person_directory_id = (:gt_person_directory_id) WHERE email_address = (:email_address)"  # noqa
-                ),
-                {
-                    "email_address": buzzapi_account["mail"],
-                    "gt_person_directory_id": buzzapi_account["gtPersonDirectoryId"],
-                },
-            )
-
-            for mail in mails:
-                db().execute(
-                    (
-                        "INSERT INTO crosswalk_email_address (email_address, gt_person_directory_id)"  # noqa
-                        " VALUES (:email_address, :gt_person_directory_id)"
-                        " ON CONFLICT DO UPDATE SET gt_person_directory_id = (:gt_person_directory_id) WHERE email_address = (:email_address)"  # noqa
-                    ),
-                    {
-                        "email_address": mail,
-                        "gt_person_directory_id": buzzapi_account["gtPersonDirectoryId"],
-                    },
-                )
-
-            return {
-                "results": [
-                    format_search_result(buzzapi_account, entries),
-                ],
-                "exactMatch": True,
-            }
+            return search_by_username(query)
 
         # check if the query is formatted like a first and last name
         split_name = query.split(" ")
@@ -703,8 +885,6 @@ def search() -> (
             entries = search_whitepages(givenName=split_name[0] + "*", sn=split_name[1] + "*")
 
             uids = set()
-
-            print(entries)
 
             for entry in entries:
                 this_uid = get_attribute_value("primaryUid", entry)
@@ -725,52 +905,33 @@ def search() -> (
                     if this_mail is not None:
                         mails.add(this_mail)
 
-                buzzapi_account = get_buzzapi_primary_account(uid=uid)
+                gted_account = get_gted_primary_account(uid=uid)
 
-                if buzzapi_account is None:
+                if gted_account is None:
                     raise InternalServerError(  # pylint: disable=raise-missing-from
-                        "Account found in Whitepages but not BuzzAPI"
+                        "Account found in Whitepages but not GTED"
                     )
 
-                db().execute(
-                    (
-                        "INSERT INTO crosswalk (gt_person_directory_id, gtid, primary_username)"
-                        " VALUES (:gt_person_directory_id, :gtid, :primary_username)"
-                        " ON CONFLICT DO NOTHING"
-                    ),
-                    {
-                        "gt_person_directory_id": buzzapi_account["gtPersonDirectoryId"],
-                        "gtid": buzzapi_account["gtGTID"],
-                        "primary_username": buzzapi_account["gtPrimaryGTAccountUsername"],
-                    },
+                formatted_results.append(format_search_result(gted_account, entries))
+
+            if len(formatted_results) > 0:
+                return {
+                    "results": formatted_results,
+                    "exactMatch": False,
+                }
+
+        keycloak_results = search_keycloak(search=query)
+        formatted_results = []
+
+        for account in keycloak_results:
+            formatted_results.append(
+                format_search_result(
+                    get_gted_primary_account(uid=account["username"]),  # type: ignore
+                    search_whitepages(uid=account["username"]),
                 )
-                db().execute(
-                    (
-                        "INSERT INTO crosswalk_email_address (email_address, gt_person_directory_id)"  # noqa
-                        " VALUES (:email_address, :gt_person_directory_id)"
-                        " ON CONFLICT DO UPDATE SET gt_person_directory_id = (:gt_person_directory_id) WHERE email_address = (:email_address)"  # noqa
-                    ),
-                    {
-                        "email_address": buzzapi_account["mail"],
-                        "gt_person_directory_id": buzzapi_account["gtPersonDirectoryId"],
-                    },
-                )
+            )
 
-                for mail in mails:
-                    db().execute(
-                        (
-                            "INSERT INTO crosswalk_email_address (email_address, gt_person_directory_id)"  # noqa
-                            " VALUES (:email_address, :gt_person_directory_id)"
-                            " ON CONFLICT DO UPDATE SET gt_person_directory_id = (:gt_person_directory_id) WHERE email_address = (:email_address)"  # noqa
-                        ),
-                        {
-                            "email_address": mail,
-                            "gt_person_directory_id": buzzapi_account["gtPersonDirectoryId"],
-                        },
-                    )
-
-                formatted_results.append(format_search_result(buzzapi_account, entries))
-
+        if len(formatted_results) > 0:
             return {
                 "results": formatted_results,
                 "exactMatch": False,
@@ -802,12 +963,12 @@ def get_whitepages_records(directory_id: str) -> List[Dict[str, Dict[str, List[s
     if row is not None:
         primary_username = row[0]
     else:
-        buzzapi_account = get_buzzapi_primary_account(gtPersonDirectoryId=directory_id)
+        gted_account = get_gted_primary_account(gtPersonDirectoryId=directory_id)
 
-        if buzzapi_account is None:
-            raise NotFound("Provided directory ID was not found in Crosswalk or BuzzAPI")
+        if gted_account is None:
+            raise NotFound("Provided directory ID was not found in Crosswalk or GTED")
 
-        primary_username = buzzapi_account["gtPrimaryGTAccountUsername"]
+        primary_username = gted_account["gtPrimaryGTAccountUsername"]
 
     return search_whitepages(uid=primary_username)  # type: ignore
 
@@ -829,6 +990,210 @@ def get_gted_accounts(directory_id: str) -> List[Dict[str, Any]]:
         raise NotFound("Provided directory ID was not found in GTED")
 
     return accounts
+
+
+@app.get("/view/<directory_id>/keycloak")
+def get_keycloak_account(directory_id: str) -> Dict[str, Any]:
+    """
+    Get the Keycloak account for a given gtPersonDirectoryId
+    """
+    if "has_access" not in session:
+        raise Unauthorized("Not authenticated")
+
+    if session["has_access"] is not True:
+        raise Forbidden("Access denied")
+
+    cursor = db().execute(
+        "SELECT keycloak_user_id FROM crosswalk WHERE gt_person_directory_id = (:directory_id)",
+        {"directory_id": directory_id},
+    )
+    row = cursor.fetchone()
+
+    if row is not None and row[0] is not None:
+        keycloak_response = keycloak.get(
+            url=urlunparse(
+                (
+                    urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,
+                    urlparse(app.config["KEYCLOAK_METADATA_URL"]).hostname,
+                    "/admin/realms/" + app.config["KEYCLOAK_REALM"] + "/users/" + row[0],
+                    "",
+                    "",
+                    "",
+                )
+            ),
+            timeout=(5, 5),
+        )
+        keycloak_response.raise_for_status()
+
+        return keycloak_response.json()  # type: ignore
+
+    cursor = db().execute(
+        "SELECT primary_username FROM crosswalk WHERE gt_person_directory_id = (:directory_id)",
+        {"directory_id": directory_id},
+    )
+    row = cursor.fetchone()
+
+    if row is not None:
+        primary_username = row[0]
+    else:
+        gted_account = get_gted_primary_account(gtPersonDirectoryId=directory_id)
+
+        if gted_account is None:
+            raise NotFound("Provided directory ID was not found in Crosswalk or GTED")
+
+        primary_username = gted_account["gtPrimaryGTAccountUsername"]
+
+    keycloak_results = search_keycloak(username=primary_username, exact=True)
+
+    if len(keycloak_results) > 0:
+        return keycloak_results[0]
+
+    return {}
+
+
+@app.get("/view/<directory_id>/events")
+def get_events(directory_id: str) -> List[Dict[str, Any]]:
+    """
+    Get events that are relevant for a given gtPersonDirectoryId
+    """
+    if "has_access" not in session:
+        raise Unauthorized("Not authenticated")
+
+    if session["has_access"] is not True:
+        raise Forbidden("Access denied")
+
+    keycloak_user_id = None
+    events = []
+
+    cursor = db().execute(
+        "SELECT keycloak_user_id FROM crosswalk WHERE gt_person_directory_id = (:directory_id)",
+        {"directory_id": directory_id},
+    )
+    row = cursor.fetchone()
+
+    if row is not None and row[0] is not None:
+        keycloak_user_id = row[0]
+    else:
+        cursor = db().execute(
+            "SELECT primary_username FROM crosswalk WHERE gt_person_directory_id = (:directory_id)",
+            {"directory_id": directory_id},
+        )
+        row = cursor.fetchone()
+
+        if row is not None:
+            primary_username = row[0]
+        else:
+            gted_account = get_gted_primary_account(gtPersonDirectoryId=directory_id)
+
+            if gted_account is None:
+                raise NotFound("Provided directory ID was not found in Crosswalk or GTED")
+
+            primary_username = gted_account["gtPrimaryGTAccountUsername"]
+
+        keycloak_results = search_keycloak(username=primary_username, exact=True)
+
+        if len(keycloak_results) > 0:
+            keycloak_user_id = keycloak_results[0]["username"]
+
+    if keycloak_user_id is not None:
+        keycloak_response = keycloak.get(
+            url=urlunparse(
+                (
+                    urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,
+                    urlparse(app.config["KEYCLOAK_METADATA_URL"]).hostname,
+                    "/admin/realms/" + app.config["KEYCLOAK_REALM"] + "/events",
+                    "",
+                    "",
+                    "",
+                )
+            ),
+            params={
+                "user": keycloak_user_id,
+            },
+            timeout=(5, 5),
+        )
+        keycloak_response.raise_for_status()
+
+        for event in keycloak_response.json():
+            if event["clientId"].startswith("http"):
+                client_id = urlparse(event["clientId"]).netloc
+            else:
+                client_id = event["clientId"]
+
+            events.append(
+                {
+                    "eventTimestamp": event["time"],
+                    "eventDescription": "logged into " + client_id,
+                    "eventLink": urlunparse(
+                        (
+                            urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,
+                            urlparse(app.config["KEYCLOAK_METADATA_URL"]).hostname,
+                            "/admin/master/console/",
+                            "",
+                            "",
+                            "/"
+                            + app.config["KEYCLOAK_REALM"]
+                            + "/users/"
+                            + keycloak_user_id
+                            + "/events",
+                        )
+                    ),
+                }
+                | get_actor(gtPersonDirectoryId=directory_id)
+            )
+
+        keycloak_response = keycloak.get(
+            url=urlunparse(
+                (
+                    urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,
+                    urlparse(app.config["KEYCLOAK_METADATA_URL"]).hostname,
+                    "/admin/realms/" + app.config["KEYCLOAK_REALM"] + "/admin-events",
+                    "",
+                    "",
+                    "",
+                )
+            ),
+            params={
+                "resourcePath": "users/" + keycloak_user_id + "*",
+            },
+            timeout=(5, 5),
+        )
+        keycloak_response.raise_for_status()
+
+        for event in keycloak_response.json():
+            if event["operationType"] == "UPDATE":
+                description = (
+                    "updated "
+                    + get_actor(gtPersonDirectoryId=directory_id)["actorDisplayName"]
+                    + "'s Keycloak account using "
+                    + get_client_display_name(event["authDetails"])
+                )
+            else:
+                raise InternalServerError("Unrecognized operationType in Keycloak event")
+
+            events.append(
+                {
+                    "eventTimestamp": event["time"],
+                    "eventDescription": description,
+                    "eventLink": urlunparse(
+                        (
+                            urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,
+                            urlparse(app.config["KEYCLOAK_METADATA_URL"]).hostname,
+                            "/admin/master/console/",
+                            "",
+                            "",
+                            "/"
+                            + app.config["KEYCLOAK_REALM"]
+                            + "/users/"
+                            + keycloak_user_id
+                            + "/events",
+                        )
+                    ),
+                }
+                | get_actor(**event["authDetails"])
+            )
+
+    return events
 
 
 @app.get("/ping")
