@@ -808,6 +808,27 @@ def search_by_email(email_address: Address) -> Dict[str, Any]:
             if len(username_results["results"]) > 0:
                 return username_results
 
+    apiary_result = apiary.post(
+        url=app.config["APIARY_BASE_URL"] + "/api/v1/users/searchByEmail",
+        json={
+            "email": email_address.addr_spec,
+        },
+        headers={
+            "Accept": "application/json",
+        },
+    )
+
+    if apiary_result.status_code != 404:
+        apiary_result.raise_for_status()
+
+        if (
+            "user" in apiary_result.json()
+            and apiary_result.json()["user"] is not None
+            and "uid" in apiary_result.json()["user"]
+            and apiary_result.json()["user"]["uid"] is not None
+        ):
+            return search_by_username(apiary_result.json()["user"]["uid"])
+
     keycloak_results = search_keycloak(email=email_address.addr_spec, exact=True)
 
     if len(keycloak_results) > 0:
