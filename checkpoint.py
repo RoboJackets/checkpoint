@@ -704,6 +704,16 @@ def spa(directory_id: Union[str, None] = None) -> Any:  # pylint: disable=unused
                     "/" + app.config["KEYCLOAK_REALM"] + "/users/",
                 )
             ),
+            "apiaryBaseUrl": urlunparse(
+                (
+                    urlparse(app.config["APIARY_BASE_URL"]).scheme,
+                    urlparse(app.config["APIARY_BASE_URL"]).hostname,
+                    "",
+                    "",
+                    "",
+                    "",
+                )
+            ),
         },
     )
 

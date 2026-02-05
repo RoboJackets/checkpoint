@@ -132,6 +132,7 @@ type alias Model =
     , searchResults : Maybe (Result Http.Error SearchResults)
     , selectedUser : Maybe SelectedUser
     , keycloakDeepLinkBaseUrl : String
+    , apiaryBaseUrl : String
     , zone : Time.Zone
     , zoneName : Time.ZoneName
     }
@@ -465,6 +466,7 @@ buildInitialModel serverData url navKey =
                 Nothing
         )
         (String.trim (Result.withDefault "" (decodeValue (at [ "keycloakDeepLinkBaseUrl" ] string) serverData)))
+        (String.trim (Result.withDefault "" (decodeValue (at [ "apiaryBaseUrl" ] string) serverData)))
         Time.utc
         (Time.Name "UTC")
 
@@ -733,8 +735,17 @@ viewSearchResults model =
                     case result of
                         Ok searchResults ->
                             if List.isEmpty searchResults.results then
-                                [ div [ style "text-align" "center", class "text-secondary", style "margin-top" "8rem" ] [ text "No results" ]
-                                ]
+                                if searchResults.exactMatch then
+                                    [ div [ style "text-align" "center", class "text-secondary", style "margin-top" "8rem" ]
+                                        [ p [] [ text "No results" ]
+                                        , p [] [ a [ href (model.apiaryBaseUrl ++ "/nova/resources/users?users_search=" ++ Url.percentEncode (String.trim model.searchQuery)), target "_blank" ] [ text "Try searching in Apiary?" ] ]
+                                        ]
+
+                                    ]
+
+                                else
+                                    [ div [ style "text-align" "center", class "text-secondary", style "margin-top" "8rem" ] [ text "No results" ]
+                                    ]
 
                             else
                                 List.map (searchResultToHtml model.majors) searchResults.results
