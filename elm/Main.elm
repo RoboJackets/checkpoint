@@ -740,7 +740,6 @@ viewSearchResults model =
                                         [ p [] [ text "No results" ]
                                         , p [] [ a [ href (model.apiaryBaseUrl ++ "/nova/resources/users?users_search=" ++ Url.percentEncode (String.trim model.searchQuery)), target "_blank" ] [ text "Try searching in Apiary?" ] ]
                                         ]
-
                                     ]
 
                                 else
