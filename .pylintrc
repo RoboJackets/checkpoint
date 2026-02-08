@@ -1,5 +1,5 @@
 [BASIC]
-disable=line-too-long,too-many-lines,too-many-return-statements,too-many-branches
+disable=line-too-long,too-many-lines,too-many-return-statements,too-many-branches,too-many-locals,too-many-statements
 
 [FORMAT]
 expected-line-ending-format=LF

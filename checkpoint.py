@@ -2,13 +2,15 @@
 IAM support and troubleshooting tools
 """
 
+import datetime
 import logging
+import re
 import sqlite3
 from base64 import b64encode
 from email.errors import InvalidHeaderDefect
 from email.headerregistry import Address
 from hashlib import file_digest
-from json import loads
+from json import dumps, loads
 from os import environ
 from re import IGNORECASE, fullmatch
 from sqlite3 import connect
@@ -48,6 +50,10 @@ req_log.setLevel(logging.DEBUG)
 req_log.propagate = True
 
 GEORGIA_TECH_USERNAME_REGEX = r"[a-zA-Z]+[0-9]+"
+ACCESS_OVERRIDE_TIMESTAMP_REGEX = r"(?P<timestamp>\d{4}-\d{2}-\d{2})"
+NUMBER_IN_QUOTES_REGEX = r"\"(?P<user_id>\d+)\""
+PAYMENT_METHOD_REGEX = r"\"method\".+\"(?P<method>[a-z]+)\".+\"amount\""
+CLIENT_NAME_REGEX = r"\"client_name\".+?\"(?P<client_name>.+?)\""
 
 USER_AGENT = "Checkpoint/" + environ.get("NOMAD_SHORT_ALLOC_ID", "local")
 
@@ -370,6 +376,33 @@ def get_actor(**kwargs: str) -> Dict[str, str]:
     """
     Get the display name and link for an event actor
     """
+    if (
+        "full_name" in kwargs
+        and "gtPersonDirectoryId" in kwargs
+        and kwargs["gtPersonDirectoryId"] is not None
+    ):
+        return {
+            "actorDisplayName": kwargs["full_name"],
+            "actorLink": "/view/" + kwargs["gtPersonDirectoryId"],
+        }
+
+    if (
+        "full_name" in kwargs
+        and "id" in kwargs
+        and kwargs["id"] is not None
+        and "is_service_account" in kwargs
+        and kwargs["is_service_account"] is True  # type: ignore
+    ):
+        display_name = kwargs["full_name"]
+
+        if display_name.startswith("Service Account for "):
+            display_name = display_name[len("Service Account for ") :]  # noqa
+
+        return {
+            "actorDisplayName": display_name,
+            "actorLink": app.config["APIARY_BASE_URL"] + "/nova/resources/users/" + kwargs["id"],
+        }
+
     if "gtPersonDirectoryId" in kwargs or "uid" in kwargs:
         gted_account = get_gted_primary_account(**kwargs)
 
@@ -428,6 +461,26 @@ def get_actor(**kwargs: str) -> Dict[str, str]:
                         )
                     ),
                 }
+
+    if "apiary_user_id" in kwargs:
+        apiary_response = apiary.get(
+            url=app.config["APIARY_BASE_URL"] + "/api/v1/users/" + str(kwargs["apiary_user_id"]),
+            timeout=(5, 5),
+            headers={
+                "Accept": "application/json",
+            },
+        )
+        apiary_response.raise_for_status()
+
+        if (
+            "user" in apiary_response.json()
+            and apiary_response.json()["user"] is not None
+            and "full_name" in apiary_response.json()["user"]
+            and apiary_response.json()["user"]["full_name"] is not None
+        ):
+            return {
+                "actorDisplayName": apiary_response.json()["user"]["full_name"],
+            }
 
     raise InternalServerError("Unable to identify actor")
 
@@ -604,6 +657,18 @@ def format_search_result(
                 title = entry["attributes"]["title"][0]
 
                 organizational_unit = get_attribute_value("ou", entry)
+
+    if (
+        organizational_unit is None
+        and "gtCurriculum" in gted_account
+        and gted_account["gtCurriculum"] is not None
+        and len(gted_account["gtCurriculum"]) > 0
+    ):
+        for curriculum in gted_account["gtCurriculum"]:
+            parts = curriculum.split("/")
+
+            if len(parts) == 3:
+                organizational_unit = parts[2]
 
     return {
         "givenName": gted_account["givenName"],
@@ -968,9 +1033,29 @@ def search() -> (
                 "exactMatch": False,
             }
 
+        apiary_response = apiary.post(
+            url=app.config["APIARY_BASE_URL"] + "/api/v1/users/fuzzySearch",
+            json={
+                "query": query,
+            },
+            headers={
+                "Accept": "application/json",
+            },
+            timeout=(5, 5),
+        )
+        apiary_response.raise_for_status()
+
+        for account in apiary_response.json()["users"]:
+            formatted_results.append(
+                format_search_result(
+                    get_gted_primary_account(uid=account["uid"]),  # type: ignore
+                    search_whitepages(uid=account["uid"]),
+                )
+            )
+
         return {
-            "results": [],
-            "exactMatch": True,
+            "results": formatted_results,
+            "exactMatch": False,
         }
 
 
@@ -1094,6 +1179,7 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
         raise Forbidden("Access denied")
 
     keycloak_user_id = None
+    primary_username = None
     events = []
 
     cursor = db().execute(
@@ -1224,7 +1310,1037 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
                 | get_actor(**event["authDetails"])
             )
 
+    if primary_username is None:
+        cursor = db().execute(
+            "SELECT primary_username FROM crosswalk WHERE gt_person_directory_id = (:directory_id)",
+            {"directory_id": directory_id},
+        )
+        row = cursor.fetchone()
+
+        if row is not None:
+            primary_username = row[0]
+        else:
+            gted_account = get_gted_primary_account(gtPersonDirectoryId=directory_id)
+
+            if gted_account is None:
+                raise NotFound("Provided directory ID was not found in Crosswalk or GTED")
+
+            primary_username = gted_account["gtPrimaryGTAccountUsername"]
+
+    apiary_response = apiary.get(
+        url=app.config["APIARY_BASE_URL"] + "/api/v1/users/" + primary_username,
+        params={
+            "include": "actions,attendance.recorded,attendance.attendable",
+        },
+        headers={
+            "Accept": "application/json",
+            "x-cache-bypass": "bypass",
+        },
+        timeout=(5, 5),
+    )
+    if apiary_response.status_code != 404:
+        apiary_response.raise_for_status()
+
+    if (
+        "user" in apiary_response.json()
+        and apiary_response.json()["user"] is not None
+        and "attendance" in apiary_response.json()["user"]
+        and apiary_response.json()["user"]["attendance"] is not None
+    ):
+        for attendance in apiary_response.json()["user"]["attendance"]:
+            if "recorded_by" in attendance and attendance["recorded_by"] is not None:
+                actor = get_actor(**attendance["recorded_by"])
+            else:
+                actor = {
+                    "actorDisplayName": "Import",
+                    "actorLink": None,
+                }
+
+            events.append(
+                {
+                    "eventTimestamp": parse_apiary_timestamp_to_unix_millis(
+                        attendance["created_at"]
+                    ),
+                    "eventDescription": (
+                        "recorded attendance for "
+                        + get_actor(gtPersonDirectoryId=directory_id)["actorDisplayName"]
+                        + " at "
+                        + attendance["attendable"]["name"]
+                        + " using "
+                        + attendance["source"]
+                    ),
+                    "eventLink": urlunparse(
+                        (
+                            urlparse(app.config["APIARY_BASE_URL"]).scheme,
+                            urlparse(app.config["APIARY_BASE_URL"]).hostname,
+                            "/nova/resources/attendance/" + str(attendance["id"]),
+                            "",
+                            "",
+                            "",
+                        )
+                    ),
+                }
+                | actor
+            )
+
+    if (
+        "user" in apiary_response.json()
+        and apiary_response.json()["user"] is not None
+        and "actions" in apiary_response.json()["user"]
+        and apiary_response.json()["user"]["actions"] is not None
+    ):
+        for action in apiary_response.json()["user"]["actions"]:
+            print(action)
+            if "actionable" not in action or action["actionable"] is None:
+                continue
+
+            if action["name"] == "Detach":
+                if "target" not in action or action["target"] is None:
+                    # target was deleted after the action was logged
+                    continue
+
+                events.append(
+                    {
+                        "eventTimestamp": parse_apiary_timestamp_to_unix_millis(
+                            action["created_at"]
+                        ),
+                        "eventDescription": (
+                            "detached "
+                            + get_relationship_description("target", action)
+                            + " from "
+                            + get_relationship_description("actionable", action)
+                            + " using Nova"
+                        ),
+                        "eventLink": urlunparse(
+                            (
+                                urlparse(app.config["APIARY_BASE_URL"]).scheme,
+                                urlparse(app.config["APIARY_BASE_URL"]).hostname,
+                                "/nova/resources/action-events/" + str(action["id"]),
+                                "",
+                                "",
+                                "",
+                            )
+                        ),
+                    }
+                    | get_actor(**action["actor"])
+                )
+
+            elif action["name"] == "Update":
+                events.append(
+                    {
+                        "eventTimestamp": parse_apiary_timestamp_to_unix_millis(
+                            action["created_at"]
+                        ),
+                        "eventDescription": (
+                            "updated "
+                            + get_relationship_description("target", action)
+                            + " using Nova"
+                        ),
+                        "eventLink": urlunparse(
+                            (
+                                urlparse(app.config["APIARY_BASE_URL"]).scheme,
+                                urlparse(app.config["APIARY_BASE_URL"]).hostname,
+                                "/nova/resources/action-events/" + str(action["id"]),
+                                "",
+                                "",
+                                "",
+                            )
+                        ),
+                    }
+                    | get_actor(**action["actor"])
+                )
+
+            elif action["name"] == "Delete":
+                events.append(
+                    {
+                        "eventTimestamp": parse_apiary_timestamp_to_unix_millis(
+                            action["created_at"]
+                        ),
+                        "eventDescription": (
+                            "deleted "
+                            + get_relationship_description("target", action)
+                            + " using Nova"
+                        ),
+                        "eventLink": urlunparse(
+                            (
+                                urlparse(app.config["APIARY_BASE_URL"]).scheme,
+                                urlparse(app.config["APIARY_BASE_URL"]).hostname,
+                                "/nova/resources/action-events/" + str(action["id"]),
+                                "",
+                                "",
+                                "",
+                            )
+                        ),
+                    }
+                    | get_actor(**action["actor"])
+                )
+
+            elif action["name"] == "Reset API Token":
+                events.append(
+                    {
+                        "eventTimestamp": parse_apiary_timestamp_to_unix_millis(
+                            action["created_at"]
+                        ),
+                        "eventDescription": (
+                            "reset the API token for "
+                            + get_relationship_description("target", action)
+                            + " using Nova"
+                        ),
+                        "eventLink": urlunparse(
+                            (
+                                urlparse(app.config["APIARY_BASE_URL"]).scheme,
+                                urlparse(app.config["APIARY_BASE_URL"]).hostname,
+                                "/nova/resources/action-events/" + str(action["id"]),
+                                "",
+                                "",
+                                "",
+                            )
+                        ),
+                    }
+                    | get_actor(**action["actor"])
+                )
+
+            elif action["name"] == "Attach":
+                if "target" not in action or action["target"] is None:
+                    # target was deleted after the action was logged
+                    continue
+
+                events.append(
+                    {
+                        "eventTimestamp": parse_apiary_timestamp_to_unix_millis(
+                            action["created_at"]
+                        ),
+                        "eventDescription": (
+                            "attached "
+                            + get_relationship_description("target", action)
+                            + " to "
+                            + get_relationship_description("actionable", action)
+                            + " using Nova"
+                        ),
+                        "eventLink": urlunparse(
+                            (
+                                urlparse(app.config["APIARY_BASE_URL"]).scheme,
+                                urlparse(app.config["APIARY_BASE_URL"]).hostname,
+                                "/nova/resources/action-events/" + str(action["id"]),
+                                "",
+                                "",
+                                "",
+                            )
+                        ),
+                    }
+                    | get_actor(**action["actor"])
+                )
+
+            elif action["name"] == "Create":
+                events.append(
+                    {
+                        "eventTimestamp": parse_apiary_timestamp_to_unix_millis(
+                            action["created_at"]
+                        ),
+                        "eventDescription": (
+                            "created "
+                            + get_relationship_description("target", action)
+                            + " using Nova"
+                        ),
+                        "eventLink": urlunparse(
+                            (
+                                urlparse(app.config["APIARY_BASE_URL"]).scheme,
+                                urlparse(app.config["APIARY_BASE_URL"]).hostname,
+                                "/nova/resources/action-events/" + str(action["id"]),
+                                "",
+                                "",
+                                "",
+                            )
+                        ),
+                    }
+                    | get_actor(**action["actor"])
+                )
+
+            elif action["name"] == "Sync Access":
+                events.append(
+                    {
+                        "eventTimestamp": parse_apiary_timestamp_to_unix_millis(
+                            action["created_at"]
+                        ),
+                        "eventDescription": (
+                            "synced access for "
+                            + get_relationship_description("target", action)
+                            + " using Nova"
+                        ),
+                        "eventLink": urlunparse(
+                            (
+                                urlparse(app.config["APIARY_BASE_URL"]).scheme,
+                                urlparse(app.config["APIARY_BASE_URL"]).hostname,
+                                "/nova/resources/action-events/" + str(action["id"]),
+                                "",
+                                "",
+                                "",
+                            )
+                        ),
+                    }
+                    | get_actor(**action["actor"])
+                )
+
+            elif action["name"] == "Override Access":
+                until_string = ""
+
+                timestamp_match = re.search(ACCESS_OVERRIDE_TIMESTAMP_REGEX, action["fields"])
+
+                if timestamp_match is not None:
+                    until_string = " until " + datetime.datetime.fromisoformat(
+                        timestamp_match.group("timestamp")
+                    ).strftime("%B %d, %Y")
+
+                events.append(
+                    {
+                        "eventTimestamp": parse_apiary_timestamp_to_unix_millis(
+                            action["created_at"]
+                        ),
+                        "eventDescription": (
+                            "granted an access override for "
+                            + get_relationship_description("target", action)
+                            + until_string
+                            + " using Nova"
+                        ),
+                        "eventLink": urlunparse(
+                            (
+                                urlparse(app.config["APIARY_BASE_URL"]).scheme,
+                                urlparse(app.config["APIARY_BASE_URL"]).hostname,
+                                "/nova/resources/action-events/" + str(action["id"]),
+                                "",
+                                "",
+                                "",
+                            )
+                        ),
+                    }
+                    | get_actor(**action["actor"])
+                )
+
+            elif action["name"] == "Generate Resume Book":
+                events.append(
+                    {
+                        "eventTimestamp": parse_apiary_timestamp_to_unix_millis(
+                            action["created_at"]
+                        ),
+                        "eventDescription": ("generated a resume book using Nova"),
+                        "eventLink": urlunparse(
+                            (
+                                urlparse(app.config["APIARY_BASE_URL"]).scheme,
+                                urlparse(app.config["APIARY_BASE_URL"]).hostname,
+                                "/nova/resources/action-events/" + str(action["id"]),
+                                "",
+                                "",
+                                "",
+                            )
+                        ),
+                    }
+                    | get_actor(**action["actor"])
+                )
+
+            elif action["name"] == "Update Majors":
+                events.append(
+                    {
+                        "eventTimestamp": parse_apiary_timestamp_to_unix_millis(
+                            action["created_at"]
+                        ),
+                        "eventDescription": (
+                            "updated majors for "
+                            + get_relationship_description("target", action)
+                            + " using Nova"
+                        ),
+                        "eventLink": urlunparse(
+                            (
+                                urlparse(app.config["APIARY_BASE_URL"]).scheme,
+                                urlparse(app.config["APIARY_BASE_URL"]).hostname,
+                                "/nova/resources/action-events/" + str(action["id"]),
+                                "",
+                                "",
+                                "",
+                            )
+                        ),
+                    }
+                    | get_actor(**action["actor"])
+                )
+
+            elif action["name"] == "Refresh from GTED":
+                events.append(
+                    {
+                        "eventTimestamp": parse_apiary_timestamp_to_unix_millis(
+                            action["created_at"]
+                        ),
+                        "eventDescription": (
+                            "refreshed "
+                            + get_relationship_description("target", action)
+                            + "'s Apiary account from GTED using Nova"
+                        ),
+                        "eventLink": urlunparse(
+                            (
+                                urlparse(app.config["APIARY_BASE_URL"]).scheme,
+                                urlparse(app.config["APIARY_BASE_URL"]).hostname,
+                                "/nova/resources/action-events/" + str(action["id"]),
+                                "",
+                                "",
+                                "",
+                            )
+                        ),
+                    }
+                    | get_actor(**action["actor"])
+                )
+
+            elif action["name"] == "Reset Remote Attendance":
+                events.append(
+                    {
+                        "eventTimestamp": parse_apiary_timestamp_to_unix_millis(
+                            action["created_at"]
+                        ),
+                        "eventDescription": (
+                            "reset the remote attendance link for "
+                            + get_relationship_description("target", action)
+                            + " using Nova"
+                        ),
+                        "eventLink": urlunparse(
+                            (
+                                urlparse(app.config["APIARY_BASE_URL"]).scheme,
+                                urlparse(app.config["APIARY_BASE_URL"]).hostname,
+                                "/nova/resources/action-events/" + str(action["id"]),
+                                "",
+                                "",
+                                "",
+                            )
+                        ),
+                    }
+                    | get_actor(**action["actor"])
+                )
+
+            elif action["name"] == "Restore":
+                events.append(
+                    {
+                        "eventTimestamp": parse_apiary_timestamp_to_unix_millis(
+                            action["created_at"]
+                        ),
+                        "eventDescription": (
+                            "restored "
+                            + get_relationship_description("target", action)
+                            + " using Nova"
+                        ),
+                        "eventLink": urlunparse(
+                            (
+                                urlparse(app.config["APIARY_BASE_URL"]).scheme,
+                                urlparse(app.config["APIARY_BASE_URL"]).hostname,
+                                "/nova/resources/action-events/" + str(action["id"]),
+                                "",
+                                "",
+                                "",
+                            )
+                        ),
+                    }
+                    | get_actor(**action["actor"])
+                )
+
+            elif action["name"] == "Create Dues Packages":
+                events.append(
+                    {
+                        "eventTimestamp": parse_apiary_timestamp_to_unix_millis(
+                            action["created_at"]
+                        ),
+                        "eventDescription": (
+                            "created dues packages for "
+                            + get_relationship_description("target", action)
+                            + " using Nova"
+                        ),
+                        "eventLink": urlunparse(
+                            (
+                                urlparse(app.config["APIARY_BASE_URL"]).scheme,
+                                urlparse(app.config["APIARY_BASE_URL"]).hostname,
+                                "/nova/resources/action-events/" + str(action["id"]),
+                                "",
+                                "",
+                                "",
+                            )
+                        ),
+                    }
+                    | get_actor(**action["actor"])
+                )
+
+            elif action["name"] == "Add Payment":
+                method = ""
+
+                method_match = re.search(PAYMENT_METHOD_REGEX, action["fields"])
+
+                if method_match is not None:
+                    method = method_match.group("method") + " "
+
+                events.append(
+                    {
+                        "eventTimestamp": parse_apiary_timestamp_to_unix_millis(
+                            action["created_at"]
+                        ),
+                        "eventDescription": (
+                            "recorded a "
+                            + method
+                            + "payment for "
+                            + get_relationship_description("target", action)
+                            + " using Nova"
+                        ),
+                        "eventLink": urlunparse(
+                            (
+                                urlparse(app.config["APIARY_BASE_URL"]).scheme,
+                                urlparse(app.config["APIARY_BASE_URL"]).hostname,
+                                "/nova/resources/action-events/" + str(action["id"]),
+                                "",
+                                "",
+                                "",
+                            )
+                        ),
+                    }
+                    | get_actor(**action["actor"])
+                )
+
+            elif action["name"] == "Distribute Shirt":
+                events.append(
+                    {
+                        "eventTimestamp": parse_apiary_timestamp_to_unix_millis(
+                            action["created_at"]
+                        ),
+                        "eventDescription": (
+                            "distributed shirt to "
+                            + get_actor(apiary_user_id=action["target"]["user_id"])[
+                                "actorDisplayName"
+                            ]
+                            + " using Nova"
+                        ),
+                        "eventLink": urlunparse(
+                            (
+                                urlparse(app.config["APIARY_BASE_URL"]).scheme,
+                                urlparse(app.config["APIARY_BASE_URL"]).hostname,
+                                "/nova/resources/action-events/" + str(action["id"]),
+                                "",
+                                "",
+                                "",
+                            )
+                        ),
+                    }
+                    | get_actor(**action["actor"])
+                )
+
+            elif action["name"] == "Distribute Polo":
+                events.append(
+                    {
+                        "eventTimestamp": parse_apiary_timestamp_to_unix_millis(
+                            action["created_at"]
+                        ),
+                        "eventDescription": (
+                            "distributed polo to "
+                            + get_actor(apiary_user_id=action["target"]["user_id"])[
+                                "actorDisplayName"
+                            ]
+                            + " using Nova"
+                        ),
+                        "eventLink": urlunparse(
+                            (
+                                urlparse(app.config["APIARY_BASE_URL"]).scheme,
+                                urlparse(app.config["APIARY_BASE_URL"]).hostname,
+                                "/nova/resources/action-events/" + str(action["id"]),
+                                "",
+                                "",
+                                "",
+                            )
+                        ),
+                    }
+                    | get_actor(**action["actor"])
+                )
+
+            elif action["name"] == "Distribute Merchandise":
+                to_member_string = ""
+
+                user_id_match = re.search(NUMBER_IN_QUOTES_REGEX, action["fields"])
+
+                if user_id_match is not None:
+                    to_member_string = (
+                        " to "
+                        + get_actor(apiary_user_id=user_id_match.group("user_id"))[
+                            "actorDisplayName"
+                        ]
+                    )
+
+                events.append(
+                    {
+                        "eventTimestamp": parse_apiary_timestamp_to_unix_millis(
+                            action["created_at"]
+                        ),
+                        "eventDescription": (
+                            "distributed "
+                            + get_relationship_description("target", action)
+                            + to_member_string
+                            + " using Nova"
+                        ),
+                        "eventLink": urlunparse(
+                            (
+                                urlparse(app.config["APIARY_BASE_URL"]).scheme,
+                                urlparse(app.config["APIARY_BASE_URL"]).hostname,
+                                "/nova/resources/action-events/" + str(action["id"]),
+                                "",
+                                "",
+                                "",
+                            )
+                        ),
+                    }
+                    | get_actor(**action["actor"])
+                )
+
+            elif action["name"] == "Undo Merchandise Distribution":
+                to_member_string = ""
+
+                user_id_match = re.search(NUMBER_IN_QUOTES_REGEX, action["fields"])
+
+                if user_id_match is not None:
+                    to_member_string = (
+                        " for "
+                        + get_actor(apiary_user_id=user_id_match.group("user_id"))[
+                            "actorDisplayName"
+                        ]
+                    )
+
+                events.append(
+                    {
+                        "eventTimestamp": parse_apiary_timestamp_to_unix_millis(
+                            action["created_at"]
+                        ),
+                        "eventDescription": (
+                            "reset merchandise distribution for "
+                            + get_relationship_description("target", action)
+                            + to_member_string
+                            + " using Nova"
+                        ),
+                        "eventLink": urlunparse(
+                            (
+                                urlparse(app.config["APIARY_BASE_URL"]).scheme,
+                                urlparse(app.config["APIARY_BASE_URL"]).hostname,
+                                "/nova/resources/action-events/" + str(action["id"]),
+                                "",
+                                "",
+                                "",
+                            )
+                        ),
+                    }
+                    | get_actor(**action["actor"])
+                )
+
+            elif action["name"] == "Create Personal Access Token":
+                events.append(
+                    {
+                        "eventTimestamp": parse_apiary_timestamp_to_unix_millis(
+                            action["created_at"]
+                        ),
+                        "eventDescription": (
+                            "created a personal access token for "
+                            + get_relationship_description("target", action)
+                            + " using Nova"
+                        ),
+                        "eventLink": urlunparse(
+                            (
+                                urlparse(app.config["APIARY_BASE_URL"]).scheme,
+                                urlparse(app.config["APIARY_BASE_URL"]).hostname,
+                                "/nova/resources/action-events/" + str(action["id"]),
+                                "",
+                                "",
+                                "",
+                            )
+                        ),
+                    }
+                    | get_actor(**action["actor"])
+                )
+
+            elif action["name"] == "Refund Payment":
+                events.append(
+                    {
+                        "eventTimestamp": parse_apiary_timestamp_to_unix_millis(
+                            action["created_at"]
+                        ),
+                        "eventDescription": ("refunded a payment using Nova"),
+                        "eventLink": urlunparse(
+                            (
+                                urlparse(app.config["APIARY_BASE_URL"]).scheme,
+                                urlparse(app.config["APIARY_BASE_URL"]).hostname,
+                                "/nova/resources/action-events/" + str(action["id"]),
+                                "",
+                                "",
+                                "",
+                            )
+                        ),
+                    }
+                    | get_actor(**action["actor"])
+                )
+
+            elif (
+                action["name"] == "Revoke All OAuth2 Tokens"
+                or action["name"] == "Revoke All Tokens"
+            ):
+                events.append(
+                    {
+                        "eventTimestamp": parse_apiary_timestamp_to_unix_millis(
+                            action["created_at"]
+                        ),
+                        "eventDescription": (
+                            "revoked all Apiary tokens for "
+                            + get_relationship_description("target", action)
+                            + " using Nova"
+                        ),
+                        "eventLink": urlunparse(
+                            (
+                                urlparse(app.config["APIARY_BASE_URL"]).scheme,
+                                urlparse(app.config["APIARY_BASE_URL"]).hostname,
+                                "/nova/resources/action-events/" + str(action["id"]),
+                                "",
+                                "",
+                                "",
+                            )
+                        ),
+                    }
+                    | get_actor(**action["actor"])
+                )
+
+            elif action["name"] == "Download Forms":
+                events.append(
+                    {
+                        "eventTimestamp": parse_apiary_timestamp_to_unix_millis(
+                            action["created_at"]
+                        ),
+                        "eventDescription": (
+                            "downloaded travel forms for "
+                            + get_relationship_description("target", action)
+                            + " using Nova"
+                        ),
+                        "eventLink": urlunparse(
+                            (
+                                urlparse(app.config["APIARY_BASE_URL"]).scheme,
+                                urlparse(app.config["APIARY_BASE_URL"]).hostname,
+                                "/nova/resources/action-events/" + str(action["id"]),
+                                "",
+                                "",
+                                "",
+                            )
+                        ),
+                    }
+                    | get_actor(**action["actor"])
+                )
+
+            elif action["name"] == "Download IAA Request":
+                events.append(
+                    {
+                        "eventTimestamp": parse_apiary_timestamp_to_unix_millis(
+                            action["created_at"]
+                        ),
+                        "eventDescription": (
+                            "downloaded IAA request for "
+                            + get_relationship_description("target", action)
+                            + " using Nova"
+                        ),
+                        "eventLink": urlunparse(
+                            (
+                                urlparse(app.config["APIARY_BASE_URL"]).scheme,
+                                urlparse(app.config["APIARY_BASE_URL"]).hostname,
+                                "/nova/resources/action-events/" + str(action["id"]),
+                                "",
+                                "",
+                                "",
+                            )
+                        ),
+                    }
+                    | get_actor(**action["actor"])
+                )
+
+            elif action["name"] == "Download Passenger Name List":
+                events.append(
+                    {
+                        "eventTimestamp": parse_apiary_timestamp_to_unix_millis(
+                            action["created_at"]
+                        ),
+                        "eventDescription": (
+                            "downloaded passenger name list for "
+                            + get_relationship_description("target", action)
+                            + " using Nova"
+                        ),
+                        "eventLink": urlunparse(
+                            (
+                                urlparse(app.config["APIARY_BASE_URL"]).scheme,
+                                urlparse(app.config["APIARY_BASE_URL"]).hostname,
+                                "/nova/resources/action-events/" + str(action["id"]),
+                                "",
+                                "",
+                                "",
+                            )
+                        ),
+                    }
+                    | get_actor(**action["actor"])
+                )
+
+            elif action["name"] == "Void Envelope":
+                events.append(
+                    {
+                        "eventTimestamp": parse_apiary_timestamp_to_unix_millis(
+                            action["created_at"]
+                        ),
+                        "eventDescription": (
+                            "voided a DocuSign envelope for "
+                            + get_actor(apiary_user_id=action["actionable"]["signed_by"])[
+                                "actorDisplayName"
+                            ]
+                            + " using Nova"
+                        ),
+                        "eventLink": urlunparse(
+                            (
+                                urlparse(app.config["APIARY_BASE_URL"]).scheme,
+                                urlparse(app.config["APIARY_BASE_URL"]).hostname,
+                                "/nova/resources/action-events/" + str(action["id"]),
+                                "",
+                                "",
+                                "",
+                            )
+                        ),
+                    }
+                    | get_actor(**action["actor"])
+                )
+
+            elif action["name"] == "Record Cash Payment":
+                events.append(
+                    {
+                        "eventTimestamp": parse_apiary_timestamp_to_unix_millis(
+                            action["created_at"]
+                        ),
+                        "eventDescription": (
+                            "recorded a cash payment for "
+                            + get_relationship_description("target", action)
+                            + " using Nova"
+                        ),
+                        "eventLink": urlunparse(
+                            (
+                                urlparse(app.config["APIARY_BASE_URL"]).scheme,
+                                urlparse(app.config["APIARY_BASE_URL"]).hostname,
+                                "/nova/resources/action-events/" + str(action["id"]),
+                                "",
+                                "",
+                                "",
+                            )
+                        ),
+                    }
+                    | get_actor(**action["actor"])
+                )
+
+            elif action["name"] == "Record Check Payment":
+                events.append(
+                    {
+                        "eventTimestamp": parse_apiary_timestamp_to_unix_millis(
+                            action["created_at"]
+                        ),
+                        "eventDescription": (
+                            "recorded a check payment for "
+                            + get_relationship_description("target", action)
+                            + " using Nova"
+                        ),
+                        "eventLink": urlunparse(
+                            (
+                                urlparse(app.config["APIARY_BASE_URL"]).scheme,
+                                urlparse(app.config["APIARY_BASE_URL"]).hostname,
+                                "/nova/resources/action-events/" + str(action["id"]),
+                                "",
+                                "",
+                                "",
+                            )
+                        ),
+                    }
+                    | get_actor(**action["actor"])
+                )
+
+            elif action["name"] == "Apply Waiver" or action["name"] == "Record Waiver Payment":
+                events.append(
+                    {
+                        "eventTimestamp": parse_apiary_timestamp_to_unix_millis(
+                            action["created_at"]
+                        ),
+                        "eventDescription": (
+                            "applied a waiver for "
+                            + get_relationship_description("target", action)
+                            + " using Nova"
+                        ),
+                        "eventLink": urlunparse(
+                            (
+                                urlparse(app.config["APIARY_BASE_URL"]).scheme,
+                                urlparse(app.config["APIARY_BASE_URL"]).hostname,
+                                "/nova/resources/action-events/" + str(action["id"]),
+                                "",
+                                "",
+                                "",
+                            )
+                        ),
+                    }
+                    | get_actor(**action["actor"])
+                )
+
+            elif action["name"] == "Matrix Airfare Search":
+                events.append(
+                    {
+                        "eventTimestamp": parse_apiary_timestamp_to_unix_millis(
+                            action["created_at"]
+                        ),
+                        "eventDescription": (
+                            "searched for flights for "
+                            + get_relationship_description("target", action)
+                            + " using Matrix"
+                        ),
+                        "eventLink": urlunparse(
+                            (
+                                urlparse(app.config["APIARY_BASE_URL"]).scheme,
+                                urlparse(app.config["APIARY_BASE_URL"]).hostname,
+                                "/nova/resources/action-events/" + str(action["id"]),
+                                "",
+                                "",
+                                "",
+                            )
+                        ),
+                    }
+                    | get_actor(**action["actor"])
+                )
+
+            elif action["name"] == "Review Trip":
+                events.append(
+                    {
+                        "eventTimestamp": parse_apiary_timestamp_to_unix_millis(
+                            action["created_at"]
+                        ),
+                        "eventDescription": (
+                            "reviewed " + get_relationship_description("target", action)
+                        ),
+                        "eventLink": urlunparse(
+                            (
+                                urlparse(app.config["APIARY_BASE_URL"]).scheme,
+                                urlparse(app.config["APIARY_BASE_URL"]).hostname,
+                                "/nova/resources/action-events/" + str(action["id"]),
+                                "",
+                                "",
+                                "",
+                            )
+                        ),
+                    }
+                    | get_actor(**action["actor"])
+                )
+
+            elif action["name"] == "Create OAuth2 Client":
+                client_name = ""
+
+                client_name_match = re.search(CLIENT_NAME_REGEX, action["fields"])
+
+                if client_name_match is not None:
+                    client_name = client_name_match.group("client_name") + " "
+
+                events.append(
+                    {
+                        "eventTimestamp": parse_apiary_timestamp_to_unix_millis(
+                            action["created_at"]
+                        ),
+                        "eventDescription": ("created OAuth client " + client_name),
+                        "eventLink": urlunparse(
+                            (
+                                urlparse(app.config["APIARY_BASE_URL"]).scheme,
+                                urlparse(app.config["APIARY_BASE_URL"]).hostname,
+                                "/nova/resources/action-events/" + str(action["id"]),
+                                "",
+                                "",
+                                "",
+                            )
+                        ),
+                    }
+                    | get_actor(**action["actor"])
+                )
+
+            elif action["name"] == "Send Notification":
+                continue
+
+            else:
+                raise InternalServerError(
+                    "Unable to determine description for action: " + dumps(action)
+                )
+
     return events
+
+
+def get_relationship_description(relationship_type: str, action: Dict[str, Any]) -> str:
+    """
+    Get a brief description for a related model for a Nova action
+    """
+    if action[relationship_type + "_type"] == "App\\Models\\DuesPackage":
+        return "dues package " + action[relationship_type]["name"]  # type: ignore
+    if action[relationship_type + "_type"] == "Spatie\\Permission\\Models\\Role":
+        return "role " + action[relationship_type]["name"]  # type: ignore
+    if action[relationship_type + "_type"] == "App\\Models\\User":
+        return action[relationship_type]["full_name"]  # type: ignore
+    if (
+        action[relationship_type + "_type"] == "App\\Models\\Team"
+        or action[relationship_type + "_type"] == "team"
+    ):
+        return "team " + action[relationship_type]["name"]  # type: ignore
+    if action[relationship_type + "_type"] == "Spatie\\Permission\\Models\\Permission":
+        return "permission " + action[relationship_type]["name"]  # type: ignore
+    if action[relationship_type + "_type"] == "App\\Models\\Major":
+        return "major " + action[relationship_type]["display_name"]  # type: ignore
+    if action[relationship_type + "_type"] == "App\\Models\\FiscalYear":
+        return "fiscal year " + action[relationship_type]["ending_year"]  # type: ignore
+    if action[relationship_type + "_type"] == "dues-transaction":
+        return (  # type: ignore
+            get_actor(apiary_user_id=action[relationship_type]["user_id"])["actorDisplayName"]
+            + "'s dues transaction for "
+            + action[relationship_type]["package"]["name"]
+        )
+    if action[relationship_type + "_type"] == "App\\Models\\MembershipAgreementTemplate":
+        return (
+            "membership agreement "
+            + str(datetime.datetime.fromisoformat(action[relationship_type]["updated_at"]).year)
+            + " edition"
+        )
+    if action[relationship_type + "_type"] == "App\\Models\\Merchandise":
+        return action[relationship_type]["name"]  # type: ignore
+    if action[relationship_type + "_type"] == "App\\Models\\RemoteAttendanceLink":
+        return "remote attendance link for " + action[relationship_type]["attendable"]["name"]  # type: ignore  # noqa
+    if action[relationship_type + "_type"] == "App\\Models\\ClassStanding":
+        return "major " + action[relationship_type]["name"]  # type: ignore
+    if action[relationship_type + "_type"] == "event":
+        return action[relationship_type]["name"]  # type: ignore
+    if action[relationship_type + "_type"] == "App\\Models\\Travel":
+        return action[relationship_type]["name"]  # type: ignore
+    if (
+        action[relationship_type + "_type"] == "App\\Models\\Signature"
+        or action[relationship_type + "_type"] == "signature"
+    ):
+        return (  # type: ignore
+            "membership agreement for "
+            + get_actor(apiary_user_id=action[relationship_type]["user_id"])["actorDisplayName"]
+        )
+    if action[relationship_type + "_type"] == "travel-assignment":
+        return (  # type: ignore
+            get_actor(apiary_user_id=action[relationship_type]["user_id"])["actorDisplayName"]
+            + "'s trip assignment for "
+            + action[relationship_type]["travel"]["name"]
+        )
+    if action[relationship_type + "_type"] == "App\\Models\\Payment":
+        return "payment"
+    if action[relationship_type + "_type"] == "App\\Models\\OAuth2Client":
+        return "OAuth client " + action[relationship_type]["name"]  # type: ignore
+    if action[relationship_type + "_type"] == "App\\Models\\Sponsor":
+        return "sponsor " + action[relationship_type]["name"]  # type: ignore
+    if action[relationship_type + "_type"] == "App\\Models\\SponsorDomain":
+        return "sponsor domain " + action[relationship_type]["domain_name"]  # type: ignore
+
+    raise InternalServerError("Unable to determine target for action: " + dumps(action))
+
+
+def parse_apiary_timestamp_to_unix_millis(timestamp: str) -> int:
+    """
+    Convert a timestamp from Apiary into Unix milliseconds to send to the frontend
+    """
+    return int(
+        datetime.datetime.fromisoformat(timestamp).replace(tzinfo=datetime.timezone.utc).timestamp()
+        * 1000
+    )
 
 
 @app.get("/ping")
