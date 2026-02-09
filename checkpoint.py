@@ -119,6 +119,7 @@ apiary = OAuth2Session(
     token_endpoint=app.config["APIARY_BASE_URL"] + "/oauth/token",
 )
 apiary.headers["User-Agent"] = USER_AGENT
+apiary.headers["Accept"] = "application/json"
 apiary.fetch_token()
 
 cache = Cache(app)
@@ -466,9 +467,6 @@ def get_actor(**kwargs: str) -> Dict[str, str]:
         apiary_response = apiary.get(
             url=app.config["APIARY_BASE_URL"] + "/api/v1/users/" + str(kwargs["apiary_user_id"]),
             timeout=(5, 5),
-            headers={
-                "Accept": "application/json",
-            },
         )
         apiary_response.raise_for_status()
 
@@ -888,9 +886,6 @@ def search_by_email(email_address: Address) -> Dict[str, Any]:
         json={
             "email": email_address.addr_spec,
         },
-        headers={
-            "Accept": "application/json",
-        },
     )
 
     if apiary_result.status_code != 404:
@@ -1038,9 +1033,6 @@ def search() -> (
             json={
                 "query": query,
             },
-            headers={
-                "Accept": "application/json",
-            },
             timeout=(5, 5),
         )
         apiary_response.raise_for_status()
@@ -1165,6 +1157,50 @@ def get_keycloak_account(directory_id: str) -> Dict[str, Any]:
         return keycloak_results[0]
 
     return {}
+
+@app.get("/view/<directory_id>/apiary")
+def get_apiary_account(directory_id: str) -> Dict[str, Any]:
+    """
+    Get the Apiary user for a given gtPersonDirectoryId
+    """
+    if "has_access" not in session:
+        raise Unauthorized("Not authenticated")
+
+    if session["has_access"] is not True:
+        raise Forbidden("Access denied")
+
+    cursor = db().execute(
+        "SELECT primary_username FROM crosswalk WHERE gt_person_directory_id = (:directory_id)",
+        {"directory_id": directory_id},
+    )
+    row = cursor.fetchone()
+
+    if row is not None:
+        primary_username = row[0]
+    else:
+        gted_account = get_gted_primary_account(gtPersonDirectoryId=directory_id)
+
+        if gted_account is None:
+            raise NotFound("Provided directory ID was not found in Crosswalk or GTED")
+
+        primary_username = gted_account["gtPrimaryGTAccountUsername"]
+
+    apiary_response = apiary.get(
+        url=app.config["APIARY_BASE_URL"] + "/api/v1/users/" + primary_username,
+        params={
+            "include": "actions,attendance.recorded,attendance.attendable,teams",
+        },
+        headers={
+            "x-cache-bypass": "bypass",
+        },
+        timeout=(5, 5),
+    )
+    if apiary_response.status_code == 404:
+        return {}
+
+    apiary_response.raise_for_status()
+
+    return apiary_response.json()["user"]
 
 
 @app.get("/view/<directory_id>/events")
@@ -1333,7 +1369,6 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
             "include": "actions,attendance.recorded,attendance.attendable",
         },
         headers={
-            "Accept": "application/json",
             "x-cache-bypass": "bypass",
         },
         timeout=(5, 5),
@@ -1475,7 +1510,7 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
                     | get_actor(**action["actor"])
                 )
 
-            elif action["name"] == "Reset API Token":
+            elif action["name"] == "Reset API Token" or action["name"] == "Reset Api Token":
                 events.append(
                     {
                         "eventTimestamp": parse_apiary_timestamp_to_unix_millis(
