@@ -98,6 +98,13 @@ type alias KeycloakAccount =
     }
 
 
+type alias ApiaryUser =
+    { id : String
+    , isActive : Bool
+    , isAccessActive : Bool
+    }
+
+
 type alias Event =
     { actorDisplayName : String
     , actorLink : Maybe String
@@ -112,6 +119,7 @@ type alias SelectedUser =
     , whitepagesEntries : Maybe (Result Http.Error (List WhitepagesEntry))
     , gtedAccounts : Maybe (Result Http.Error (List GtedAccount))
     , keycloakAccount : Maybe (Result Http.Error (Maybe KeycloakAccount))
+    , apiaryUser : Maybe (Result Http.Error (Maybe ApiaryUser))
     , events : Maybe (Result Http.Error (List Event))
     }
 
@@ -147,6 +155,7 @@ type Msg
     | WhitepagesEntriesReceived (Result Http.Error (List WhitepagesEntry))
     | GtedAccountsReceived (Result Http.Error (List GtedAccount))
     | KeycloakAccountReceived (Result Http.Error (Maybe KeycloakAccount))
+    | ApiaryUserReceived (Result Http.Error (Maybe ApiaryUser))
     | EventsReceived (Result Http.Error (List Event))
     | SetZone Time.Zone
     | SetZoneName Time.ZoneName
@@ -264,7 +273,7 @@ update msg model =
                     case result of
                         Ok searchResults ->
                             if searchResults.exactMatch && List.length searchResults.results == 1 then
-                                Just { directoryId = (Maybe.withDefault { directoryId = "", givenName = "", surname = "", title = Nothing, organizationalUnit = Nothing, primaryAffiliation = Nothing, affiliations = [] } (List.head searchResults.results)).directoryId, whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, events = Nothing }
+                                Just { directoryId = (Maybe.withDefault { directoryId = "", givenName = "", surname = "", title = Nothing, organizationalUnit = Nothing, primaryAffiliation = Nothing, affiliations = [] } (List.head searchResults.results)).directoryId, whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, apiaryUser = Nothing, events = Nothing }
 
                             else
                                 Nothing
@@ -323,6 +332,19 @@ update msg model =
             , Cmd.none
             )
 
+        ApiaryUserReceived result ->
+            ( { model
+                | selectedUser =
+                    case model.selectedUser of
+                        Just selectedUser ->
+                            Just { selectedUser | apiaryUser = Just result }
+
+                        Nothing ->
+                            Nothing
+              }
+            , Cmd.none
+            )
+
         EventsReceived result ->
             ( { model
                 | selectedUser =
@@ -357,7 +379,7 @@ update msg model =
                 , selectedUser =
                     case Url.Parser.parse urlParser url of
                         Just (ViewPerson directoryId) ->
-                            Just { directoryId = directoryId, whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, events = Nothing }
+                            Just { directoryId = directoryId, whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, apiaryUser = Nothing, events = Nothing }
 
                         _ ->
                             Nothing
@@ -460,6 +482,7 @@ buildInitialModel serverData url navKey =
                         Nothing
                         Nothing
                         Nothing
+                        Nothing
                     )
 
             _ ->
@@ -509,6 +532,16 @@ keycloakResponseDecoder =
             (at [ "id" ] Json.Decode.string)
             (at [ "enabled" ] Json.Decode.bool)
             (at [ "attributes" ] (Json.Decode.dict (Json.Decode.list string)))
+        )
+
+
+apiaryResponseDecoder : Decoder (Maybe ApiaryUser)
+apiaryResponseDecoder =
+    Json.Decode.maybe
+        (Json.Decode.map3 ApiaryUser
+            (at [ "id" ] Json.Decode.string)
+            (at [ "is_active" ] Json.Decode.bool)
+            (at [ "is_access_active" ] Json.Decode.bool)
         )
 
 
@@ -1077,6 +1110,13 @@ fetchViewPersonData directoryId =
         , Http.get
             { url =
                 Url.Builder.absolute
+                    [ "view", directoryId, "apiary" ]
+                    []
+            , expect = expectJson ApiaryUserReceived apiaryResponseDecoder
+            }
+        , Http.get
+            { url =
+                Url.Builder.absolute
                     [ "view", directoryId, "events" ]
                     []
             , expect = expectJson EventsReceived eventsResponseDecoder
@@ -1286,6 +1326,42 @@ viewPerson model =
                    )
                 ++ (case model.selectedUser of
                         Just selectedUser ->
+                            case selectedUser.apiaryUser of
+                                Just (Err (BadStatus 404)) ->
+                                    []
+
+                                Just (Err err) ->
+                                    [ div [ class "alert", class "alert-danger" ]
+                                        [ text
+                                            ((case err of
+                                                BadUrl errorMessage ->
+                                                    errorMessage
+
+                                                Timeout ->
+                                                    "There was a timeout while retrieving the Apiary user."
+
+                                                NetworkError ->
+                                                    "There was a network error while retrieving the Apiary user."
+
+                                                BadStatus statusCode ->
+                                                    "The server returned status code " ++ String.fromInt statusCode ++ " while retrieving the Apiary user."
+
+                                                BadBody errorMessage ->
+                                                    "There was an error parsing the Apiary user: " ++ errorMessage ++ "."
+                                             )
+                                                ++ " Reload the page to try again."
+                                            )
+                                        ]
+                                    ]
+
+                                _ ->
+                                    []
+
+                        Nothing ->
+                            []
+                   )
+                ++ (case model.selectedUser of
+                        Just selectedUser ->
                             case selectedUser.events of
                                 Just (Err (BadStatus 404)) ->
                                     []
@@ -1396,7 +1472,7 @@ viewPerson model =
                             [ div [ class "card" ]
                                 [ div [ class "card-body" ]
                                     ([ h6 [] [ text "Whitepages" ]
-                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, events = Nothing } model.selectedUser).directoryId, "whitepages" ] []), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View raw" ]
+                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, apiaryUser = Nothing, events = Nothing } model.selectedUser).directoryId, "whitepages" ] []), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View raw" ]
                                      ]
                                         ++ (case model.selectedUser of
                                                 Just selectedUser ->
@@ -1443,8 +1519,8 @@ viewPerson model =
                             [ div [ class "card" ]
                                 [ div [ class "card-body" ]
                                     ([ h6 [] [ text "GTED" ]
-                                     , a [ target "_blank", href ("https://iat.gatech.edu/prod/person/" ++ (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, events = Nothing } model.selectedUser).directoryId), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View in IAT" ]
-                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, events = Nothing } model.selectedUser).directoryId, "gted" ] []), class "position-absolute", style "top" "36px", style "right" "14px" ] [ text "View raw" ]
+                                     , a [ target "_blank", href ("https://iat.gatech.edu/prod/person/" ++ (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, apiaryUser = Nothing, events = Nothing } model.selectedUser).directoryId), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View in IAT" ]
+                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, apiaryUser = Nothing, events = Nothing } model.selectedUser).directoryId, "gted" ] []), class "position-absolute", style "top" "36px", style "right" "14px" ] [ text "View raw" ]
                                      ]
                                         ++ (case model.selectedUser of
                                                 Just selectedUser ->
@@ -1500,7 +1576,7 @@ viewPerson model =
                                 [ div [ class "card-body" ]
                                     ([ h6 [] [ text "Keycloak" ]
                                      , a [ target "_blank", href (model.keycloakDeepLinkBaseUrl ++ getKeycloakUserId model ++ "/settings"), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View in Keycloak" ]
-                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, events = Nothing } model.selectedUser).directoryId, "keycloak" ] []), class "position-absolute", style "top" "36px", style "right" "14px" ] [ text "View raw" ]
+                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, apiaryUser = Nothing, events = Nothing } model.selectedUser).directoryId, "keycloak" ] []), class "position-absolute", style "top" "36px", style "right" "14px" ] [ text "View raw" ]
                                      ]
                                         ++ (case model.selectedUser of
                                                 Just selectedUser ->
@@ -1532,6 +1608,92 @@ viewPerson model =
 
                                                             else
                                                                 [ span [ class "badge", class "rounded-pill", class "text-bg-secondary", class "me-1" ] [ text "disabled" ] ]
+
+                                                        Just (Ok Nothing) ->
+                                                            []
+
+                                                        Nothing ->
+                                                            [ div [ class "placeholder-wave" ] [ span [ class "placeholder", class "rounded-pill", class "col-1" ] [] ] ]
+
+                                                Nothing ->
+                                                    []
+                                           )
+                                    )
+                                ]
+                            ]
+                        , div [ class "col-3" ]
+                            [ div [ class "card" ]
+                                [ div [ class "card-body" ]
+                                    ([ h6 [] [ text "Apiary" ]
+                                     , a [ target "_blank", href (model.apiaryBaseUrl ++ "/nova/resources/users/" ++ getApiaryUserId model), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View in Apiary" ]
+                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, apiaryUser = Nothing, events = Nothing } model.selectedUser).directoryId, "apiary" ] []), class "position-absolute", style "top" "36px", style "right" "14px" ] [ text "View raw" ]
+                                     ]
+                                        ++ (case model.selectedUser of
+                                                Just selectedUser ->
+                                                    case selectedUser.apiaryUser of
+                                                        Just (Err _) ->
+                                                            []
+
+                                                        Just (Ok (Just _)) ->
+                                                            [ div [ class "mb-1" ] [ text "1 account" ] ]
+
+                                                        Just (Ok Nothing) ->
+                                                            [ div [] [ text "No account" ] ]
+
+                                                        Nothing ->
+                                                            [ div [ class "placeholder-wave", class "mb-1" ] [ span [ class "placeholder", class "col-1" ] [] ] ]
+
+                                                Nothing ->
+                                                    []
+                                           )
+                                        ++ (case model.selectedUser of
+                                                Just selectedUser ->
+                                                    case selectedUser.apiaryUser of
+                                                        Just (Err _) ->
+                                                            []
+
+                                                        Just (Ok (Just account)) ->
+                                                            [ span
+                                                                [ class "badge"
+                                                                , class "rounded-pill"
+                                                                , class
+                                                                    (if account.isActive then
+                                                                        "text-bg-primary"
+
+                                                                     else
+                                                                        "text-bg-secondary"
+                                                                    )
+                                                                , class "me-1"
+                                                                ]
+                                                                [ text
+                                                                    (if account.isActive then
+                                                                        "membership active"
+
+                                                                     else
+                                                                        "membership inactive"
+                                                                    )
+                                                                ]
+                                                            , span
+                                                                [ class "badge"
+                                                                , class "rounded-pill"
+                                                                , class
+                                                                    (if account.isAccessActive then
+                                                                        "text-bg-primary"
+
+                                                                     else
+                                                                        "text-bg-secondary"
+                                                                    )
+                                                                , class "me-1"
+                                                                ]
+                                                                [ text
+                                                                    (if account.isAccessActive then
+                                                                        "access active"
+
+                                                                     else
+                                                                        "access inactive"
+                                                                    )
+                                                                ]
+                                                            ]
 
                                                         Just (Ok Nothing) ->
                                                             []
@@ -1577,6 +1739,21 @@ getKeycloakUserId model =
             case selectedUser.keycloakAccount of
                 Just (Ok (Just keycloakAccount)) ->
                     keycloakAccount.id
+
+                _ ->
+                    ""
+
+        _ ->
+            ""
+
+
+getApiaryUserId : Model -> String
+getApiaryUserId model =
+    case model.selectedUser of
+        Just selectedUser ->
+            case selectedUser.apiaryUser of
+                Just (Ok (Just apiaryUser)) ->
+                    apiaryUser.id
 
                 _ ->
                     ""
