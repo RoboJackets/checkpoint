@@ -1158,6 +1158,7 @@ def get_keycloak_account(directory_id: str) -> Dict[str, Any]:
 
     return {}
 
+
 @app.get("/view/<directory_id>/apiary")
 def get_apiary_account(directory_id: str) -> Dict[str, Any]:
     """
