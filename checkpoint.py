@@ -1201,7 +1201,7 @@ def get_apiary_account(directory_id: str) -> Dict[str, Any]:
 
     apiary_response.raise_for_status()
 
-    return apiary_response.json()["user"]
+    return apiary_response.json()["user"]  # type: ignore
 
 
 @app.get("/view/<directory_id>/events")
