@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS crosswalk (
     gt_person_directory_id TEXT NOT NULL PRIMARY KEY COLLATE NOCASE,
     gtid INTEGER NOT NULL UNIQUE,
     primary_username TEXT NOT NULL UNIQUE COLLATE NOCASE,
-    keycloak_user_id TEXT UNIQUE COLLATE NOCASE
+    keycloak_user_id TEXT UNIQUE COLLATE NOCASE,
+    google_workspace_user_id TEXT UNIQUE COLLATE NOCASE
 ) strict;
 
 CREATE TABLE IF NOT EXISTS crosswalk_email_address (

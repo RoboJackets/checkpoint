@@ -5,7 +5,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python Debugger: Flask",
+            "name": "Flask",
             "type": "debugpy",
             "request": "launch",
             "module": "flask",
@@ -17,9 +17,19 @@
             "envFile": "${workspaceFolder}/.env",
             "args": [
                 "run",
-                "--no-debugger",
-                "--no-reload"
+                "--no-debugger"
             ],
+            "jinja": true,
+            "autoStartBrowser": false
+        },
+        {
+            "name": "Migrate",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "migrate",
+            "env": {},
+            "envFile": "${workspaceFolder}/.env",
+            "args": [],
             "jinja": true,
             "autoStartBrowser": false
         }

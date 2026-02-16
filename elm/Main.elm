@@ -4,6 +4,7 @@ import Browser
 import Browser.Dom exposing (..)
 import Browser.Navigation as Nav
 import Dict exposing (..)
+import Email
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
@@ -11,6 +12,7 @@ import Http exposing (..)
 import Json.Decode exposing (..)
 import Json.Decode.Pipeline
 import Json.Encode
+import Set
 import Svg exposing (Svg, path, svg)
 import Svg.Attributes exposing (d)
 import Task
@@ -38,6 +40,21 @@ magnifyIcon =
 spinner : Html msg
 spinner =
     div [ class "spinner-border", class "spinner-border-sm", style "display" "inline-block" ] []
+
+
+checkIcon : Svg msg
+checkIcon =
+    svg [ Svg.Attributes.width "0.9em", Svg.Attributes.height "0.9em", Svg.Attributes.viewBox "1 1 14 14", Svg.Attributes.fill "currentColor", Svg.Attributes.style "top: -0.05em; position: relative;" ] [ path [ d "M12.736 3.97a.733.733 0 0 1 1.047 0c.286.289.29.756.01 1.05L7.88 12.01a.733.733 0 0 1-1.065.02L3.217 8.384a.757.757 0 0 1 0-1.06.733.733 0 0 1 1.047 0l3.052 3.093 5.4-6.425a.247.247 0 0 1 .02-.022Z" ] [] ]
+
+
+closeIcon : Svg msg
+closeIcon =
+    svg [ Svg.Attributes.width "0.9em", Svg.Attributes.height "0.9em", Svg.Attributes.viewBox "2 2 20 20", Svg.Attributes.fill "currentColor", Svg.Attributes.style "top: -0.05em; position: relative;" ] [ path [ d "M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z" ] [] ]
+
+
+infoIcon : Svg msg
+infoIcon =
+    svg [ Svg.Attributes.width "0.9em", Svg.Attributes.height "0.9em", Svg.Attributes.viewBox "1 1 22 22", Svg.Attributes.fill "currentColor", Svg.Attributes.style "top: -0.05em; position: relative;" ] [ path [ d "M13,9H11V7H13M13,17H11V11H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z" ] [] ]
 
 
 
@@ -94,14 +111,38 @@ type alias GtedAccount =
 type alias KeycloakAccount =
     { id : String
     , enabled : Bool
-    , attributes : Dict String (List String)
+    , attributes : Maybe (Dict String (List String))
     }
+
+
+type alias Group =
+    { displayName : String
+    , googleGroupEmail : Maybe String
+    }
+
+
+type alias GoogleGroupsForAccount =
+    Maybe (List Group)
+
+
+type alias AllGoogleAccountGroups =
+    Dict String GoogleGroupsForAccount
 
 
 type alias ApiaryUser =
     { id : String
     , isActive : Bool
     , isAccessActive : Bool
+    , signedLatestAgreement : Bool
+    , teams : List Group
+    , roles : List String
+    , googleAccount : Maybe String
+    }
+
+
+type alias GoogleWorkspaceAccount =
+    { primaryEmail : String
+    , suspended : Bool
     }
 
 
@@ -114,6 +155,21 @@ type alias Event =
     }
 
 
+type AppStatus
+    = Loading
+    | Success
+    | Danger
+    | Info
+
+
+type alias AppStatusBadge =
+    { status : AppStatus
+    , label : String
+    , tooltip : String
+    , link : Maybe String
+    }
+
+
 type alias SelectedUser =
     { directoryId : String
     , whitepagesEntries : Maybe (Result Http.Error (List WhitepagesEntry))
@@ -121,6 +177,8 @@ type alias SelectedUser =
     , keycloakAccount : Maybe (Result Http.Error (Maybe KeycloakAccount))
     , apiaryUser : Maybe (Result Http.Error (Maybe ApiaryUser))
     , events : Maybe (Result Http.Error (List Event))
+    , googleGroups : Maybe (Result Http.Error AllGoogleAccountGroups)
+    , googleWorkspaceAccount : Maybe (Result Http.Error (Maybe GoogleWorkspaceAccount))
     }
 
 
@@ -157,6 +215,8 @@ type Msg
     | KeycloakAccountReceived (Result Http.Error (Maybe KeycloakAccount))
     | ApiaryUserReceived (Result Http.Error (Maybe ApiaryUser))
     | EventsReceived (Result Http.Error (List Event))
+    | GoogleGroupsReceived (Result Http.Error AllGoogleAccountGroups)
+    | GoogleWorkspaceAccountReceived (Result Http.Error (Maybe GoogleWorkspaceAccount))
     | SetZone Time.Zone
     | SetZoneName Time.ZoneName
     | NoOpMsg
@@ -273,7 +333,7 @@ update msg model =
                     case result of
                         Ok searchResults ->
                             if searchResults.exactMatch && List.length searchResults.results == 1 then
-                                Just { directoryId = (Maybe.withDefault { directoryId = "", givenName = "", surname = "", title = Nothing, organizationalUnit = Nothing, primaryAffiliation = Nothing, affiliations = [] } (List.head searchResults.results)).directoryId, whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, apiaryUser = Nothing, events = Nothing }
+                                Just { directoryId = (Maybe.withDefault { directoryId = "", givenName = "", surname = "", title = Nothing, organizationalUnit = Nothing, primaryAffiliation = Nothing, affiliations = [] } (List.head searchResults.results)).directoryId, whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing }
 
                             else
                                 Nothing
@@ -358,6 +418,32 @@ update msg model =
             , Cmd.none
             )
 
+        GoogleGroupsReceived result ->
+            ( { model
+                | selectedUser =
+                    case model.selectedUser of
+                        Just selectedUser ->
+                            Just { selectedUser | googleGroups = Just result }
+
+                        Nothing ->
+                            Nothing
+              }
+            , Cmd.none
+            )
+
+        GoogleWorkspaceAccountReceived result ->
+            ( { model
+                | selectedUser =
+                    case model.selectedUser of
+                        Just selectedUser ->
+                            Just { selectedUser | googleWorkspaceAccount = Just result }
+
+                        Nothing ->
+                            Nothing
+              }
+            , Cmd.none
+            )
+
         NoOpMsg ->
             ( model, Cmd.none )
 
@@ -379,7 +465,7 @@ update msg model =
                 , selectedUser =
                     case Url.Parser.parse urlParser url of
                         Just (ViewPerson directoryId) ->
-                            Just { directoryId = directoryId, whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, apiaryUser = Nothing, events = Nothing }
+                            Just { directoryId = directoryId, whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing }
 
                         _ ->
                             Nothing
@@ -483,6 +569,8 @@ buildInitialModel serverData url navKey =
                         Nothing
                         Nothing
                         Nothing
+                        Nothing
+                        Nothing
                     )
 
             _ ->
@@ -531,17 +619,59 @@ keycloakResponseDecoder =
         (Json.Decode.map3 KeycloakAccount
             (at [ "id" ] Json.Decode.string)
             (at [ "enabled" ] Json.Decode.bool)
-            (at [ "attributes" ] (Json.Decode.dict (Json.Decode.list string)))
+            (maybe (at [ "attributes" ] (Json.Decode.dict (Json.Decode.list string))))
         )
+
+
+apiaryTeamDecoder : Decoder Group
+apiaryTeamDecoder =
+    Json.Decode.map2 Group
+        (at [ "name" ] Json.Decode.string)
+        (at [ "google_group" ] (Json.Decode.maybe Json.Decode.string))
+
+
+apiaryRoleDecoder : Decoder String
+apiaryRoleDecoder =
+    Json.Decode.field "name" Json.Decode.string
 
 
 apiaryResponseDecoder : Decoder (Maybe ApiaryUser)
 apiaryResponseDecoder =
     Json.Decode.maybe
-        (Json.Decode.map3 ApiaryUser
+        (Json.Decode.map7 ApiaryUser
             (at [ "id" ] Json.Decode.string)
             (at [ "is_active" ] Json.Decode.bool)
             (at [ "is_access_active" ] Json.Decode.bool)
+            (at [ "signed_latest_agreement" ] Json.Decode.bool)
+            (at [ "teams" ] (Json.Decode.list apiaryTeamDecoder))
+            (at [ "roles" ] (Json.Decode.list apiaryRoleDecoder))
+            (at [ "gmail_address" ] (Json.Decode.maybe Json.Decode.string))
+        )
+
+
+googleGroupDecoder : Decoder Group
+googleGroupDecoder =
+    Json.Decode.map2 Group
+        (at [ "name" ] Json.Decode.string)
+        (at [ "email" ] (Json.Decode.maybe Json.Decode.string))
+
+
+googleGroupsForAccountDecoder : Decoder GoogleGroupsForAccount
+googleGroupsForAccountDecoder =
+    Json.Decode.maybe (Json.Decode.field "groups" (Json.Decode.list googleGroupDecoder))
+
+
+googleGroupsResponseDecoder : Decoder AllGoogleAccountGroups
+googleGroupsResponseDecoder =
+    Json.Decode.dict googleGroupsForAccountDecoder
+
+
+googleWorkspaceAccountResponseDecoder : Decoder (Maybe GoogleWorkspaceAccount)
+googleWorkspaceAccountResponseDecoder =
+    Json.Decode.maybe
+        (Json.Decode.map2 GoogleWorkspaceAccount
+            (at [ "primaryEmail" ] Json.Decode.string)
+            (at [ "suspended" ] Json.Decode.bool)
         )
 
 
@@ -1121,6 +1251,20 @@ fetchViewPersonData directoryId =
                     []
             , expect = expectJson EventsReceived eventsResponseDecoder
             }
+        , Http.get
+            { url =
+                Url.Builder.absolute
+                    [ "view", directoryId, "google-groups" ]
+                    []
+            , expect = expectJson GoogleGroupsReceived googleGroupsResponseDecoder
+            }
+        , Http.get
+            { url =
+                Url.Builder.absolute
+                    [ "view", directoryId, "google-workspace" ]
+                    []
+            , expect = expectJson GoogleWorkspaceAccountReceived googleWorkspaceAccountResponseDecoder
+            }
         ]
 
 
@@ -1465,14 +1609,68 @@ viewPerson model =
                         ]
                    )
                 ++ [ h5 [ class "mt-4", class "mb-3" ] [ text "Apps " ]
-                   , p [ class "text-secondary" ] [ text "Nothing here, yet" ]
+                   , div [ class "row" ]
+                        [ div [ class "col-6" ]
+                            [ div [ class "card" ]
+                                [ div [ class "card-body" ]
+                                    [ h6 [] [ text "Google Groups" ]
+                                    , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing } model.selectedUser).directoryId, "google-groups" ] []), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View raw" ]
+                                    , table [ class "table", class "table-borderless", class "m-0" ]
+                                        [ tbody []
+                                            [ tr []
+                                                [ td [ class "text-end" ] [ text "Eligibility" ]
+                                                , td []
+                                                    [ accessActiveBadge model
+                                                    , teamMembershipWithGroupBadge model
+                                                    ]
+                                                ]
+                                            , tr []
+                                                [ td [ class "text-end" ] [ text "Provisioning" ]
+                                                , td [ class "pb-0" ] [ googleGroupsProvisioning model ]
+                                                ]
+                                            ]
+                                        ]
+                                    ]
+                                ]
+                            ]
+                        , div [ class "col-6" ]
+                            [ div [ class "card" ]
+                                [ div [ class "card-body" ]
+                                    [ h6 [] [ text "Google Workspace" ]
+                                    , a [ target "_blank", href ("https://www.google.com/a/robojackets.org/ServiceLogin?continue=https://admin.google.com/ac/search?query=" ++ getGoogleWorkspacePrimaryEmail model), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View in Google Workspace" ]
+                                    , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing } model.selectedUser).directoryId, "google-workspace" ] []), class "position-absolute", style "top" "36px", style "right" "14px" ] [ text "View raw" ]
+                                    , table [ class "table", class "table-borderless", class "m-0" ]
+                                        [ tbody []
+                                            [ tr []
+                                                [ td [ class "text-end" ] [ text "Eligibility" ]
+                                                , td []
+                                                    [ membershipActiveBadge model
+                                                    , accessActiveBadge model
+                                                    , signedLatestAgreementBadge model
+                                                    , anyTeamMembershipBadge model
+                                                    , elevatedRoleBadge model
+                                                    ]
+                                                ]
+                                            , tr []
+                                                [ td [ class "text-end" ] [ text "Provisioning" ]
+                                                , td []
+                                                    [ googleWorkspaceKeycloakProvisionedBadge model
+                                                    , googleWorkspaceAccountProvisionedBadge model
+                                                    ]
+                                                ]
+                                            ]
+                                        ]
+                                    ]
+                                ]
+                            ]
+                        ]
                    , h5 [ class "mt-4", class "mb-3" ] [ text "Directories " ]
                    , div [ class "row" ]
                         [ div [ class "col-3" ]
                             [ div [ class "card" ]
                                 [ div [ class "card-body" ]
                                     ([ h6 [] [ text "Whitepages" ]
-                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, apiaryUser = Nothing, events = Nothing } model.selectedUser).directoryId, "whitepages" ] []), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View raw" ]
+                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing } model.selectedUser).directoryId, "whitepages" ] []), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View raw" ]
                                      ]
                                         ++ (case model.selectedUser of
                                                 Just selectedUser ->
@@ -1519,8 +1717,8 @@ viewPerson model =
                             [ div [ class "card" ]
                                 [ div [ class "card-body" ]
                                     ([ h6 [] [ text "GTED" ]
-                                     , a [ target "_blank", href ("https://iat.gatech.edu/prod/person/" ++ (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, apiaryUser = Nothing, events = Nothing } model.selectedUser).directoryId), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View in IAT" ]
-                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, apiaryUser = Nothing, events = Nothing } model.selectedUser).directoryId, "gted" ] []), class "position-absolute", style "top" "36px", style "right" "14px" ] [ text "View raw" ]
+                                     , a [ target "_blank", href ("https://iat.gatech.edu/prod/person/" ++ (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing } model.selectedUser).directoryId), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View in IAT" ]
+                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing } model.selectedUser).directoryId, "gted" ] []), class "position-absolute", style "top" "36px", style "right" "14px" ] [ text "View raw" ]
                                      ]
                                         ++ (case model.selectedUser of
                                                 Just selectedUser ->
@@ -1576,7 +1774,7 @@ viewPerson model =
                                 [ div [ class "card-body" ]
                                     ([ h6 [] [ text "Keycloak" ]
                                      , a [ target "_blank", href (model.keycloakDeepLinkBaseUrl ++ getKeycloakUserId model ++ "/settings"), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View in Keycloak" ]
-                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, apiaryUser = Nothing, events = Nothing } model.selectedUser).directoryId, "keycloak" ] []), class "position-absolute", style "top" "36px", style "right" "14px" ] [ text "View raw" ]
+                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing } model.selectedUser).directoryId, "keycloak" ] []), class "position-absolute", style "top" "36px", style "right" "14px" ] [ text "View raw" ]
                                      ]
                                         ++ (case model.selectedUser of
                                                 Just selectedUser ->
@@ -1626,7 +1824,7 @@ viewPerson model =
                                 [ div [ class "card-body" ]
                                     ([ h6 [] [ text "Apiary" ]
                                      , a [ target "_blank", href (model.apiaryBaseUrl ++ "/nova/resources/users/" ++ getApiaryUserId model), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View in Apiary" ]
-                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, apiaryUser = Nothing, events = Nothing } model.selectedUser).directoryId, "apiary" ] []), class "position-absolute", style "top" "36px", style "right" "14px" ] [ text "View raw" ]
+                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing } model.selectedUser).directoryId, "apiary" ] []), class "position-absolute", style "top" "36px", style "right" "14px" ] [ text "View raw" ]
                                      ]
                                         ++ (case model.selectedUser of
                                                 Just selectedUser ->
@@ -1747,6 +1945,21 @@ getKeycloakUserId model =
             ""
 
 
+getGoogleWorkspacePrimaryEmail : Model -> String
+getGoogleWorkspacePrimaryEmail model =
+    case model.selectedUser of
+        Just selectedUser ->
+            case selectedUser.googleWorkspaceAccount of
+                Just (Ok (Just googleWorkspaceAccount)) ->
+                    googleWorkspaceAccount.primaryEmail
+
+                _ ->
+                    ""
+
+        _ ->
+            ""
+
+
 getApiaryUserId : Model -> String
 getApiaryUserId model =
     case model.selectedUser of
@@ -1853,3 +2066,591 @@ eventToHtmlRow zone zoneName event =
 sortByEventTimestamp : Event -> Event -> Order
 sortByEventTimestamp first second =
     compare (Time.posixToMillis second.eventTimestamp) (Time.posixToMillis first.eventTimestamp)
+
+
+renderAppStatusBadge : AppStatusBadge -> Html msg
+renderAppStatusBadge badge =
+    let
+        badgeSpan : Html msg
+        badgeSpan =
+            case badge.status of
+                Loading ->
+                    span [ class "badge", class "placeholder", class "placeholder-wave", class "text-bg-secondary", style "vertical-align" "top", title badge.tooltip, class "me-1" ]
+                        [ div [ class "spinner-border", class "spinner-border-sm", style "display" "inline-block", style "height" "0.9em", style "width" "0.9em" ] []
+                        , text (noBreakSpace ++ badge.label)
+                        ]
+
+                Success ->
+                    span [ class "badge", class "text-bg-success", style "vertical-align" "top", title badge.tooltip, class "me-1" ]
+                        [ checkIcon
+                        , text (noBreakSpace ++ badge.label)
+                        ]
+
+                Danger ->
+                    span [ class "badge", class "text-bg-danger", style "vertical-align" "top", title badge.tooltip, class "me-1" ]
+                        [ closeIcon
+                        , text (noBreakSpace ++ badge.label)
+                        ]
+
+                Info ->
+                    span [ class "badge", class "text-bg-info", style "vertical-align" "top", title badge.tooltip, class "me-1" ]
+                        [ infoIcon
+                        , text (noBreakSpace ++ badge.label)
+                        ]
+    in
+    case badge.link of
+        Just link ->
+            a [ href link, target "_blank" ] [ badgeSpan ]
+
+        Nothing ->
+            badgeSpan
+
+
+membershipActiveBadge : Model -> Html msg
+membershipActiveBadge model =
+    case model.selectedUser of
+        Just user ->
+            case user.apiaryUser of
+                Just (Ok (Just apiaryUser)) ->
+                    if apiaryUser.isActive then
+                        renderAppStatusBadge { status = Success, label = "Membership active", tooltip = "User is membership active in Apiary", link = Nothing }
+
+                    else
+                        renderAppStatusBadge { status = Danger, label = "Membership active", tooltip = "User is membership inactive in Apiary", link = Nothing }
+
+                Just (Ok Nothing) ->
+                    renderAppStatusBadge { status = Danger, label = "Membership active", tooltip = "User does not have an Apiary account", link = Nothing }
+
+                Just (Err _) ->
+                    renderAppStatusBadge { status = Loading, label = "Membership active", tooltip = "Error loading Apiary user", link = Nothing }
+
+                Nothing ->
+                    renderAppStatusBadge { status = Loading, label = "Membership active", tooltip = "User is membership active in Apiary", link = Nothing }
+
+        Nothing ->
+            renderAppStatusBadge { status = Loading, label = "Membership active", tooltip = "User is membership active in Apiary", link = Nothing }
+
+
+signedLatestAgreementBadge : Model -> Html msg
+signedLatestAgreementBadge model =
+    case model.selectedUser of
+        Just user ->
+            case user.apiaryUser of
+                Just (Ok (Just apiaryUser)) ->
+                    if apiaryUser.signedLatestAgreement then
+                        renderAppStatusBadge { status = Success, label = "Signed latest agreement", tooltip = "User has signed the latest agreement", link = Nothing }
+
+                    else
+                        renderAppStatusBadge { status = Danger, label = "Signed latest agreement", tooltip = "User has not signed the latest agreement", link = Nothing }
+
+                Just (Ok Nothing) ->
+                    renderAppStatusBadge { status = Danger, label = "Signed latest agreement", tooltip = "User does not have an Apiary account", link = Nothing }
+
+                Just (Err _) ->
+                    renderAppStatusBadge { status = Loading, label = "Signed latest agreement", tooltip = "Error loading Apiary user", link = Nothing }
+
+                Nothing ->
+                    renderAppStatusBadge { status = Loading, label = "Signed latest agreement", tooltip = "User has signed the latest agreement", link = Nothing }
+
+        Nothing ->
+            renderAppStatusBadge { status = Loading, label = "Signed latest agreement", tooltip = "User has signed the latest agreement", link = Nothing }
+
+
+accessActiveBadge : Model -> Html msg
+accessActiveBadge model =
+    case model.selectedUser of
+        Just user ->
+            case user.apiaryUser of
+                Just (Ok (Just apiaryUser)) ->
+                    if apiaryUser.isAccessActive then
+                        renderAppStatusBadge { status = Success, label = "Access active", tooltip = "User is access active in Apiary", link = Nothing }
+
+                    else
+                        renderAppStatusBadge { status = Danger, label = "Access active", tooltip = "User is access inactive in Apiary", link = Nothing }
+
+                Just (Ok Nothing) ->
+                    renderAppStatusBadge { status = Danger, label = "Access active", tooltip = "User does not have an Apiary account", link = Nothing }
+
+                Just (Err _) ->
+                    renderAppStatusBadge { status = Loading, label = "Access active", tooltip = "Error loading Apiary user", link = Nothing }
+
+                Nothing ->
+                    renderAppStatusBadge { status = Loading, label = "Access active", tooltip = "User is access active in Apiary", link = Nothing }
+
+        Nothing ->
+            renderAppStatusBadge { status = Loading, label = "Access active", tooltip = "User is access active in Apiary", link = Nothing }
+
+
+anyTeamMembershipBadge : Model -> Html msg
+anyTeamMembershipBadge model =
+    case model.selectedUser of
+        Just user ->
+            case user.apiaryUser of
+                Just (Ok (Just apiaryUser)) ->
+                    if List.length apiaryUser.teams > 0 then
+                        renderAppStatusBadge { status = Success, label = "Team membership", tooltip = "User is a member of " ++ String.fromInt (List.length apiaryUser.teams) ++ " teams in Apiary", link = Nothing }
+
+                    else
+                        renderAppStatusBadge { status = Danger, label = "Team membership", tooltip = "User is not a member of any teams in Apiary", link = Nothing }
+
+                Just (Ok Nothing) ->
+                    renderAppStatusBadge { status = Danger, label = "Team membership", tooltip = "User does not have an Apiary account", link = Nothing }
+
+                Just (Err _) ->
+                    renderAppStatusBadge { status = Loading, label = "Team membership", tooltip = "Error loading Apiary user", link = Nothing }
+
+                Nothing ->
+                    renderAppStatusBadge { status = Loading, label = "Team membership", tooltip = "User is access active in Apiary", link = Nothing }
+
+        Nothing ->
+            renderAppStatusBadge { status = Loading, label = "Team membership", tooltip = "User is access active in Apiary", link = Nothing }
+
+
+elevatedRoleBadge : Model -> Html msg
+elevatedRoleBadge model =
+    case model.selectedUser of
+        Just user ->
+            case user.apiaryUser of
+                Just (Ok (Just apiaryUser)) ->
+                    if List.length (List.filter (\role -> role /= "member" && role /= "non-member") apiaryUser.roles) > 0 then
+                        renderAppStatusBadge
+                            { status = Success
+                            , label = "Elevated role"
+                            , tooltip =
+                                "User has "
+                                    ++ String.join " and " (List.filter (\role -> role /= "member" && role /= "non-member") apiaryUser.roles)
+                                    ++ " role"
+                                    ++ (if List.length (List.filter (\role -> role /= "member" && role /= "non-member") apiaryUser.roles) > 1 then
+                                            "s"
+
+                                        else
+                                            ""
+                                       )
+                                    ++ " in Apiary"
+                            , link = Nothing
+                            }
+
+                    else
+                        renderAppStatusBadge { status = Danger, label = "Elevated role", tooltip = "User does not have any elevated roles in Apiary", link = Nothing }
+
+                Just (Ok Nothing) ->
+                    renderAppStatusBadge { status = Danger, label = "Elevated role", tooltip = "User does not have an Apiary account", link = Nothing }
+
+                Just (Err _) ->
+                    renderAppStatusBadge { status = Loading, label = "Elevated role", tooltip = "Error loading Apiary user", link = Nothing }
+
+                Nothing ->
+                    renderAppStatusBadge { status = Loading, label = "Elevated role", tooltip = "User has roles in Apiary", link = Nothing }
+
+        Nothing ->
+            renderAppStatusBadge { status = Loading, label = "Elevated role", tooltip = "User has roles in Apiary", link = Nothing }
+
+
+teamMembershipWithGroupBadge : Model -> Html msg
+teamMembershipWithGroupBadge model =
+    case model.selectedUser of
+        Just user ->
+            case user.apiaryUser of
+                Just (Ok (Just apiaryUser)) ->
+                    if List.length (List.filter (\team -> team.googleGroupEmail /= Nothing) apiaryUser.teams) > 0 then
+                        renderAppStatusBadge { status = Success, label = "Team membership", tooltip = "User is a member of " ++ String.fromInt (List.length (List.filter (\team -> team.googleGroupEmail /= Nothing) apiaryUser.teams)) ++ " teams in Apiary with Google Groups associated", link = Nothing }
+
+                    else
+                        renderAppStatusBadge { status = Danger, label = "Team membership", tooltip = "User is not a member of any teams in Apiary with Google Groups associated", link = Nothing }
+
+                Just (Ok Nothing) ->
+                    renderAppStatusBadge { status = Danger, label = "Team membership", tooltip = "User does not have an Apiary account", link = Nothing }
+
+                Just (Err _) ->
+                    renderAppStatusBadge { status = Loading, label = "Team membership", tooltip = "Error loading Apiary user", link = Nothing }
+
+                Nothing ->
+                    renderAppStatusBadge { status = Loading, label = "Team membership", tooltip = "User is access active in Apiary", link = Nothing }
+
+        Nothing ->
+            renderAppStatusBadge { status = Loading, label = "Team membership", tooltip = "User is access active in Apiary", link = Nothing }
+
+
+googleWorkspaceKeycloakProvisionedBadge : Model -> Html msg
+googleWorkspaceKeycloakProvisionedBadge model =
+    let
+        badgeLink : Maybe String
+        badgeLink =
+            case model.selectedUser of
+                Just user ->
+                    case user.keycloakAccount of
+                        Just (Ok (Just _)) ->
+                            Just (model.keycloakDeepLinkBaseUrl ++ getKeycloakUserId model ++ "/settings")
+
+                        _ ->
+                            Nothing
+
+                _ ->
+                    Nothing
+    in
+    case model.selectedUser of
+        Just user ->
+            case user.googleWorkspaceAccount of
+                Just (Ok (Just googleWorkspaceAccount)) ->
+                    case user.keycloakAccount of
+                        Just (Ok (Just keycloakAccount)) ->
+                            if keycloakAccount.enabled then
+                                if List.head (Maybe.withDefault [] (Dict.get "googleWorkspaceAccount" (Maybe.withDefault Dict.empty keycloakAccount.attributes))) == Just googleWorkspaceAccount.primaryEmail then
+                                    renderAppStatusBadge { status = Success, label = "Keycloak", tooltip = "Keycloak account is enabled and configured for single sign-on with Google Workspace", link = badgeLink }
+
+                                else
+                                    renderAppStatusBadge { status = Danger, label = "Keycloak", tooltip = "Keycloak account isn't configured for single sign-on with Google Workspace", link = badgeLink }
+
+                            else
+                                renderAppStatusBadge { status = Danger, label = "Keycloak", tooltip = "Keycloak account is disabled", link = badgeLink }
+
+                        Just (Err _) ->
+                            renderAppStatusBadge { status = Loading, label = "Keycloak", tooltip = "Error loading Keycloak account", link = badgeLink }
+
+                        Just (Ok Nothing) ->
+                            renderAppStatusBadge { status = Danger, label = "Keycloak", tooltip = "User doesn't have a Keycloak account", link = badgeLink }
+
+                        Nothing ->
+                            renderAppStatusBadge { status = Loading, label = "Keycloak", tooltip = "Error loading Keycloak account", link = badgeLink }
+
+                Just (Ok Nothing) ->
+                    case user.keycloakAccount of
+                        Just (Ok (Just keycloakAccount)) ->
+                            if keycloakAccount.enabled then
+                                renderAppStatusBadge { status = Danger, label = "Keycloak", tooltip = "Keycloak account isn't configured for single sign-on with Google Workspace", link = badgeLink }
+
+                            else
+                                renderAppStatusBadge { status = Danger, label = "Keycloak", tooltip = "Keycloak account is disabled", link = badgeLink }
+
+                        Just (Ok Nothing) ->
+                            renderAppStatusBadge
+                                { status = Danger, label = "Keycloak", tooltip = "User doesn't have a Keycloak account", link = badgeLink }
+
+                        Just (Err _) ->
+                            renderAppStatusBadge { status = Loading, label = "Keycloak", tooltip = "Error loading Keycloak account", link = badgeLink }
+
+                        Nothing ->
+                            renderAppStatusBadge { status = Loading, label = "Keycloak", tooltip = "User doesn't have a Keycloak account", link = badgeLink }
+
+                Just (Err _) ->
+                    renderAppStatusBadge { status = Loading, label = "Keycloak", tooltip = "Error loading Keycloak account", link = badgeLink }
+
+                Nothing ->
+                    renderAppStatusBadge { status = Loading, label = "Keycloak", tooltip = "User has a Keycloak account", link = badgeLink }
+
+        Nothing ->
+            renderAppStatusBadge { status = Loading, label = "Keycloak", tooltip = "User has a Keycloak account", link = badgeLink }
+
+
+googleWorkspaceAccountProvisionedBadge : Model -> Html msg
+googleWorkspaceAccountProvisionedBadge model =
+    let
+        badgeLink : Maybe String
+        badgeLink =
+            case model.selectedUser of
+                Just user ->
+                    case user.googleWorkspaceAccount of
+                        Just (Ok (Just _)) ->
+                            Just ("https://www.google.com/a/robojackets.org/ServiceLogin?continue=https://admin.google.com/ac/search?query=" ++ getGoogleWorkspacePrimaryEmail model)
+
+                        _ ->
+                            Nothing
+
+                _ ->
+                    Nothing
+    in
+    case model.selectedUser of
+        Just user ->
+            case user.googleWorkspaceAccount of
+                Just (Ok (Just googleWorkspaceAccount)) ->
+                    if googleWorkspaceAccount.suspended then
+                        renderAppStatusBadge { status = Danger, label = "Google Workspace", tooltip = "User has a suspended Google Workspace account", link = badgeLink }
+
+                    else
+                        renderAppStatusBadge { status = Success, label = "Google Workspace", tooltip = "User has an active Google Workspace account", link = badgeLink }
+
+                Just (Ok Nothing) ->
+                    renderAppStatusBadge { status = Danger, label = "Google Workspace", tooltip = "User doesn't have a Google Workspace account", link = badgeLink }
+
+                Just (Err _) ->
+                    renderAppStatusBadge { status = Loading, label = "Google Workspace", tooltip = "Error loading Google Workspace account", link = badgeLink }
+
+                Nothing ->
+                    renderAppStatusBadge { status = Loading, label = "Google Workspace", tooltip = "User has a Google Workspace account", link = badgeLink }
+
+        Nothing ->
+            renderAppStatusBadge { status = Loading, label = "Google Workspace", tooltip = "User has a Google Workspace account", link = badgeLink }
+
+
+googleGroupsProvisioning : Model -> Html msg
+googleGroupsProvisioning model =
+    case model.selectedUser of
+        Just user ->
+            case user.apiaryUser of
+                Just (Ok (Just apiaryUser)) ->
+                    case apiaryUser.googleAccount of
+                        Just googleAccount ->
+                            table [ class "table", class "m-0" ]
+                                [ tbody []
+                                    (googleGroupAccountProvisioning model googleAccount
+                                        :: (if getGoogleWorkspacePrimaryEmail model /= "" && getGoogleWorkspacePrimaryEmail model /= googleAccount then
+                                                [ div [ class "mt-3" ] []
+                                                , googleGroupAccountProvisioning model (getGoogleWorkspacePrimaryEmail model)
+                                                ]
+
+                                            else
+                                                []
+                                           )
+                                    )
+                                ]
+
+                        Nothing ->
+                            if getGoogleWorkspacePrimaryEmail model == "" then
+                                span [ class "text-secondary" ] [ text "No Google account linked to Apiary account" ]
+
+                            else
+                                table [ class "table" ]
+                                    [ tbody []
+                                        [ googleGroupAccountProvisioning model (getGoogleWorkspacePrimaryEmail model) ]
+                                    ]
+
+                Just (Ok Nothing) ->
+                    if getGoogleWorkspacePrimaryEmail model == "" then
+                        span [ class "text-secondary" ] [ text "User does not have an Apiary account" ]
+
+                    else
+                        table [ class "table" ]
+                            [ tbody []
+                                [ googleGroupAccountProvisioning model (getGoogleWorkspacePrimaryEmail model) ]
+                            ]
+
+                Just (Err _) ->
+                    span [ class "text-secondary" ] [ text "Error loading Apiary account" ]
+
+                Nothing ->
+                    div [ class "mb-1", class "placeholder-wave" ] [ span [ class "placeholder", class "col-12" ] [] ]
+
+        Nothing ->
+            text ""
+
+
+groupsToShowFromGoogleGroupsResponse : Model -> String -> Set.Set String
+groupsToShowFromGoogleGroupsResponse model thisAccount =
+    case model.selectedUser of
+        Just user ->
+            case user.googleGroups of
+                Just (Ok groups) ->
+                    case Dict.get thisAccount groups of
+                        Just (Just thisAccountGroups) ->
+                            Set.fromList (List.filterMap .googleGroupEmail thisAccountGroups)
+
+                        _ ->
+                            Set.empty
+
+                _ ->
+                    Set.empty
+
+        Nothing ->
+            Set.empty
+
+
+groupsToShowFromApiaryResponse : Model -> Set.Set String
+groupsToShowFromApiaryResponse model =
+    case model.selectedUser of
+        Just user ->
+            case user.apiaryUser of
+                Just (Ok (Just apiaryUser)) ->
+                    if apiaryUser.isAccessActive then
+                        Set.fromList (List.map String.toLower (List.filterMap .googleGroupEmail apiaryUser.teams))
+
+                    else
+                        Set.empty
+
+                _ ->
+                    Set.empty
+
+        Nothing ->
+            Set.empty
+
+
+allGroupsToShow : Model -> String -> Set.Set String
+allGroupsToShow model thisAccount =
+    Set.union (groupsToShowFromGoogleGroupsResponse model thisAccount) (groupsToShowFromApiaryResponse model)
+
+
+displayNameForGoogleGroupFromGoogleGroupsResponse : Model -> String -> Maybe String
+displayNameForGoogleGroupFromGoogleGroupsResponse model thisGroupEmail =
+    case model.selectedUser of
+        Just user ->
+            case user.googleGroups of
+                Just (Ok groups) ->
+                    let
+                        allGroups : List Group
+                        allGroups =
+                            List.concatMap
+                                (\maybeGroupList -> Maybe.withDefault [] maybeGroupList)
+                                (Dict.values groups)
+                    in
+                    case List.head (List.filter (\g -> Maybe.map String.toLower g.googleGroupEmail == Just (String.toLower thisGroupEmail)) allGroups) of
+                        Just matchedGroup ->
+                            Just matchedGroup.displayName
+
+                        Nothing ->
+                            Nothing
+
+                _ ->
+                    Nothing
+
+        Nothing ->
+            Nothing
+
+
+displayNameForGoogleGroupFromApiaryResponse : Model -> String -> Maybe String
+displayNameForGoogleGroupFromApiaryResponse model thisGroupEmail =
+    case model.selectedUser of
+        Just user ->
+            case user.apiaryUser of
+                Just (Ok (Just apiaryUser)) ->
+                    case List.head (List.filter (\x -> Maybe.map String.toLower x.googleGroupEmail == Just (String.toLower thisGroupEmail)) apiaryUser.teams) of
+                        Just thisGroup ->
+                            Just thisGroup.displayName
+
+                        Nothing ->
+                            Nothing
+
+                _ ->
+                    Nothing
+
+        Nothing ->
+            Nothing
+
+
+displayNameForGoogleGroup : Model -> String -> String
+displayNameForGoogleGroup model thisGroupEmail =
+    case displayNameForGoogleGroupFromGoogleGroupsResponse model thisGroupEmail of
+        Just displayName ->
+            displayName
+
+        Nothing ->
+            case displayNameForGoogleGroupFromApiaryResponse model thisGroupEmail of
+                Just displayName ->
+                    displayName
+
+                Nothing ->
+                    ""
+
+
+getAppStatusBadgeForGroup : Model -> String -> String -> AppStatusBadge
+getAppStatusBadgeForGroup model thisAccount thisGroupEmail =
+    { status =
+        case model.selectedUser of
+            Just selectedUser ->
+                case selectedUser.googleGroups of
+                    Just (Ok groups) ->
+                        case Dict.get thisAccount groups of
+                            Just (Just thisAccountGroups) ->
+                                if List.any (\g -> Maybe.map String.toLower g.googleGroupEmail == Just (String.toLower thisGroupEmail)) thisAccountGroups then
+                                    case selectedUser.apiaryUser of
+                                        Just (Ok (Just apiaryUser)) ->
+                                            if List.any (\g -> Maybe.map String.toLower g.googleGroupEmail == Just (String.toLower thisGroupEmail)) apiaryUser.teams then
+                                                Success
+
+                                            else
+                                                Info
+
+                                        Just (Ok Nothing) ->
+                                            Info
+
+                                        Just (Err _) ->
+                                            Loading
+
+                                        Nothing ->
+                                            Info
+
+                                else
+                                    Danger
+
+                            _ ->
+                                Danger
+
+                    _ ->
+                        Loading
+
+            _ ->
+                Loading
+    , label = displayNameForGoogleGroup model (String.toLower thisGroupEmail)
+    , tooltip =
+        case model.selectedUser of
+            Just selectedUser ->
+                case selectedUser.googleGroups of
+                    Just (Ok groups) ->
+                        case Dict.get thisAccount groups of
+                            Just (Just thisAccountGroups) ->
+                                if List.any (\g -> Maybe.map String.toLower g.googleGroupEmail == Just (String.toLower thisGroupEmail)) thisAccountGroups then
+                                    case selectedUser.apiaryUser of
+                                        Just (Ok (Just apiaryUser)) ->
+                                            if List.any (\g -> Maybe.map String.toLower g.googleGroupEmail == Just (String.toLower thisGroupEmail)) apiaryUser.teams then
+                                                "User is in the " ++ displayNameForGoogleGroup model (String.toLower thisGroupEmail) ++ " team in Apiary, and is provisioned in the corresponding Google Group"
+
+                                            else
+                                                "User is in the " ++ displayNameForGoogleGroup model (String.toLower thisGroupEmail) ++ " group, but not in any corresponding Apiary team"
+
+                                        Just (Ok Nothing) ->
+                                            "User is in the " ++ displayNameForGoogleGroup model (String.toLower thisGroupEmail) ++ " group, but doesn't have an Apiary account"
+
+                                        Just (Err _) ->
+                                            ""
+
+                                        Nothing ->
+                                            ""
+
+                                else
+                                    "User is in the " ++ displayNameForGoogleGroup model (String.toLower thisGroupEmail) ++ " team in Apiary, but isn't provisioned in the corresponding Google Group"
+
+                            _ ->
+                                "User is in the " ++ displayNameForGoogleGroup model (String.toLower thisGroupEmail) ++ " team in Apiary, but isn't provisioned in the corresponding Google Group"
+
+                    _ ->
+                        ""
+
+            _ ->
+                ""
+    , link =
+        Just
+            (Url.Builder.crossOrigin "https://www.google.com"
+                [ "a", "robojackets.org", "ServiceLogin" ]
+                [ Url.Builder.string "continue"
+                    (Url.Builder.crossOrigin "https://groups.google.com"
+                        [ "a"
+                        , case Email.parse thisGroupEmail of
+                            Ok addressParts ->
+                                addressParts.domain
+
+                            _ ->
+                                ""
+                        , "g"
+                        , case Email.parse thisGroupEmail of
+                            Ok addressParts ->
+                                addressParts.local
+
+                            _ ->
+                                ""
+                        , "members"
+                        ]
+                        [ Url.Builder.string "q" thisAccount ]
+                    )
+                ]
+            )
+    }
+
+
+googleGroupAccountProvisioning : Model -> String -> Html msg
+googleGroupAccountProvisioning model thisAccount =
+    tr []
+        [ div [ class "p-0" ] [ a [ href ("mailto:" ++ thisAccount) ] [ text thisAccount ] ]
+        , if Set.isEmpty (allGroupsToShow model thisAccount) then
+            span [ class "text-secondary", class "px-0", class "pt-1" ] [ text "No Google Groups to provision" ]
+
+          else
+            div [ class "px-0", class "pb-0" ] (List.map (\groupEmail -> renderAppStatusBadge (getAppStatusBadgeForGroup model thisAccount groupEmail)) (Set.toList (allGroupsToShow model thisAccount)))
+        ]

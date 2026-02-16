@@ -25,6 +25,10 @@ from flask.helpers import get_debug_flag, redirect, url_for
 
 from flask_caching import Cache
 
+from google.oauth2 import service_account
+
+from googleapiclient.discovery import build  # type: ignore
+
 from ldap3 import (
     Connection,
     DEREF_ALWAYS,
@@ -186,7 +190,7 @@ def get_attribute_value(
     attribute_name: str, entry: Dict[str, Dict[str, List[str]]]
 ) -> Union[str, None]:
     """
-    Get a given attribute value from a Whitepages entry, if it exists
+    Get a given attribute value from a Whitepages entry or Keycloak account, if it exists
     """
     if (
         "attributes" in entry
@@ -373,7 +377,7 @@ def get_realms() -> List[Dict[str, Any]]:
 
 
 @cache.memoize()
-def get_actor(**kwargs: str) -> Dict[str, str]:
+def get_actor(**kwargs: str) -> Dict[str, Union[str, None]]:
     """
     Get the display name and link for an event actor
     """
@@ -480,7 +484,55 @@ def get_actor(**kwargs: str) -> Dict[str, str]:
                 "actorDisplayName": apiary_response.json()["user"]["full_name"],
             }
 
-    raise InternalServerError("Unable to identify actor")
+    if "email" in kwargs:
+        email_results = search_by_email(Address(addr_spec=kwargs["email"]), with_gted=False)
+
+        if len(email_results["results"]) > 0:
+            return {
+                "actorDisplayName": email_results["results"][0]["givenName"]
+                + " "
+                + email_results["results"][0]["surname"],
+                "actorLink": "/view/" + email_results["results"][0]["directoryId"],
+            }
+
+        if "customer_id" in kwargs:
+            credentials = service_account.Credentials.from_service_account_info(  # type: ignore
+                info=app.config["GOOGLE_SERVICE_ACCOUNT_CREDENTIALS"],
+                scopes=[
+                    "https://www.googleapis.com/auth/admin.directory.user.readonly",
+                    "https://www.googleapis.com/auth/admin.directory.customer.readonly",
+                ],
+                subject=app.config["GOOGLE_SUBJECT"],
+            )
+
+            directory = build(serviceName="admin", version="directory_v1", credentials=credentials)
+
+            customer_details = (
+                directory.customers().get(customerKey=kwargs["customer_id"]).execute()
+            )
+
+            user_details = directory.users().get(userKey=kwargs["email"]).execute()
+
+            return {
+                "actorDisplayName": user_details["name"]["fullName"],
+                "actorLink": "https://www.google.com/a/"
+                + customer_details["customerDomain"]
+                + "/ServiceLogin?continue=https://admin.google.com/ac/search?query="
+                + user_details["primaryEmail"],
+            }
+
+    if (
+        "callerType" in kwargs
+        and "key" in kwargs
+        and kwargs["callerType"] == "KEY"
+        and kwargs["key"] == "SYSTEM"
+    ):
+        return {
+            "actorDisplayName": "system",
+            "actorLink": None,
+        }
+
+    raise InternalServerError("Unable to identify actor, given: " + dumps(kwargs))
 
 
 def get_client_display_name(auth_details: Dict[str, str]) -> str:
@@ -643,6 +695,7 @@ def format_search_result(
                 and "student assistant" not in entry["attributes"]["title"][0].lower()
                 and "research assistant" not in entry["attributes"]["title"][0].lower()
                 and "graduate assistant" not in entry["attributes"]["title"][0].lower()
+                and "graduate teaching assistant" not in entry["attributes"]["title"][0].lower()
                 and "research technologist" not in entry["attributes"]["title"][0].lower()
                 and "instructional associate" not in entry["attributes"]["title"][0].lower()
             ):
@@ -831,7 +884,7 @@ def search_by_username(username: str) -> Dict[str, Any]:
     }
 
 
-def search_by_email(email_address: Address) -> Dict[str, Any]:
+def search_by_email(email_address: Address, with_gted: bool = True) -> Dict[str, Any]:
     """
     Search for a person by email address
     """
@@ -918,31 +971,36 @@ def search_by_email(email_address: Address) -> Dict[str, Any]:
     if len(keycloak_results) > 0:
         return search_by_username(keycloak_results[0]["username"])
 
-    gted_account = get_gted_primary_account(filter=build_ldap_filter(mail=email_address.addr_spec))
+    if with_gted:
+        gted_account = get_gted_primary_account(
+            filter=build_ldap_filter(mail=email_address.addr_spec)
+        )
 
-    if gted_account is not None:
-        return {
-            "results": [
-                format_search_result(
-                    gted_account, search_whitepages(uid=gted_account["gtPrimaryGTAccountUsername"])
-                ),
-            ],
-            "exactMatch": True,
-        }
+        if gted_account is not None:
+            return {
+                "results": [
+                    format_search_result(
+                        gted_account,
+                        search_whitepages(uid=gted_account["gtPrimaryGTAccountUsername"]),
+                    ),
+                ],
+                "exactMatch": True,
+            }
 
-    gted_account = get_gted_primary_account(
-        filter=build_ldap_filter(gtSecondaryMailAdddress=email_address.addr_spec)
-    )
+        gted_account = get_gted_primary_account(
+            filter=build_ldap_filter(gtSecondaryMailAdddress=email_address.addr_spec)
+        )
 
-    if gted_account is not None:
-        return {
-            "results": [
-                format_search_result(
-                    gted_account, search_whitepages(uid=gted_account["gtPrimaryGTAccountUsername"])
-                ),
-            ],
-            "exactMatch": True,
-        }
+        if gted_account is not None:
+            return {
+                "results": [
+                    format_search_result(
+                        gted_account,
+                        search_whitepages(uid=gted_account["gtPrimaryGTAccountUsername"]),
+                    ),
+                ],
+                "exactMatch": True,
+            }
 
     return {"results": [], "exactMatch": True}
 
@@ -1189,7 +1247,7 @@ def get_apiary_account(directory_id: str) -> Dict[str, Any]:
     apiary_response = apiary.get(
         url=app.config["APIARY_BASE_URL"] + "/api/v1/users/" + primary_username,
         params={
-            "include": "actions,attendance.recorded,attendance.attendable,teams",
+            "include": "actions,attendance.recorded,attendance.attendable,teams,roles",
         },
         headers={
             "x-cache-bypass": "bypass",
@@ -1388,7 +1446,7 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
                 actor = get_actor(**attendance["recorded_by"])
             else:
                 actor = {
-                    "actorDisplayName": "Import",
+                    "actorDisplayName": "import",
                     "actorLink": None,
                 }
 
@@ -2297,7 +2355,242 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
                     "Unable to determine description for action: " + dumps(action)
                 )
 
+    email_addresses = get_email_addresses(directory_id)
+
+    credentials = service_account.Credentials.from_service_account_info(  # type: ignore
+        info=app.config["GOOGLE_SERVICE_ACCOUNT_CREDENTIALS"],
+        scopes=["https://www.googleapis.com/auth/admin.reports.audit.readonly"],
+        subject=app.config["GOOGLE_SUBJECT"],
+    )
+    activities = build(  # pylint: disable=no-member
+        serviceName="admin", version="reports_v1", credentials=credentials
+    ).activities()
+
+    for email_address in email_addresses:
+        groups_events = activities.list(
+            userKey="all",
+            applicationName="groups_enterprise",
+            filters="member_id==" + email_address,
+        ).execute()
+
+        if "items" in groups_events and groups_events["items"] is not None:
+            for item in groups_events["items"]:
+                event_type = None
+                to_from = None
+                member_id = None
+                group_id = None
+
+                if "events" in item and item["events"] is not None and len(item["events"]) > 0:
+                    if "name" in item["events"][0] and item["events"][0]["name"] in (
+                        "add_user",
+                        "add_member",
+                    ):
+                        event_type = "added"
+                        to_from = "to"
+                    elif "name" in item["events"][0] and item["events"][0]["name"] in (
+                        "remove_user",
+                        "remove_member",
+                    ):
+                        event_type = "removed"
+                        to_from = "from"
+                    else:
+                        raise InternalServerError(
+                            "Unable to determine group event type: " + dumps(item["events"][0])
+                        )
+
+                    for parameter in item["events"][0]["parameters"]:
+                        if parameter["name"] == "member_id":
+                            member_id = parameter["value"]
+                        elif parameter["name"] == "group_id":
+                            group_id = parameter["value"]
+
+                if member_id is None:
+                    raise InternalServerError(
+                        "Unable to determine member ID: " + dumps(item["events"][0])
+                    )
+
+                if group_id is None:
+                    raise InternalServerError(
+                        "Unable to determine group ID: " + dumps(item["events"][0])
+                    )
+
+                event_description = (
+                    event_type + " " + member_id + " " + to_from + " group " + group_id  # type: ignore
+                )
+
+                events.append(
+                    {
+                        "eventTimestamp": parse_apiary_timestamp_to_unix_millis(item["id"]["time"]),
+                        "eventDescription": event_description,
+                        "eventLink": None,
+                    }
+                    | get_actor(**item["actor"], customer_id=item["id"]["customerId"])
+                )
+
+    workspace_account = get_google_workspace_account(directory_id)
+
+    if "primaryEmail" in workspace_account and workspace_account["primaryEmail"] is not None:
+        admin_events = activities.list(
+            userKey="all",
+            applicationName="admin",
+            filters="USER_EMAIL==" + workspace_account["primaryEmail"],
+        ).execute()
+
+        if "items" in admin_events and admin_events["items"] is not None:
+            for item in admin_events["items"]:
+                if "events" in item and item["events"] is not None and len(item["events"]) > 0:
+                    if (
+                        "name" in item["events"][0]
+                        and item["events"][0]["name"] == "ADD_GROUP_MEMBER"
+                    ):
+                        event_description = (
+                            "added "
+                            + get_parameter_value("USER_EMAIL", item["events"][0]["parameters"])
+                            + " to group "
+                            + get_parameter_value("GROUP_EMAIL", item["events"][0]["parameters"])
+                        )
+
+                    elif (
+                        "name" in item["events"][0]
+                        and item["events"][0]["name"] == "USER_LICENSE_ASSIGNMENT"
+                    ):
+                        event_description = (
+                            "assigned "
+                            + get_parameter_value("NEW_VALUE", item["events"][0]["parameters"])
+                            + " license to "
+                            + get_parameter_value("USER_EMAIL", item["events"][0]["parameters"])
+                        )
+
+                    elif "name" in item["events"][0] and item["events"][0]["name"] == "CREATE_USER":
+                        event_description = "created user " + get_parameter_value(
+                            "USER_EMAIL", item["events"][0]["parameters"]
+                        )
+
+                    elif (
+                        "name" in item["events"][0]
+                        and item["events"][0]["name"] == "MOVE_USER_TO_ORG_UNIT"
+                    ):
+                        event_description = (
+                            "moved "
+                            + get_parameter_value("USER_EMAIL", item["events"][0]["parameters"])
+                            + " to "
+                            + get_parameter_value("NEW_VALUE", item["events"][0]["parameters"])
+                        )
+
+                    else:
+                        raise InternalServerError(
+                            "Unable to determine admin event type: " + dumps(item)
+                        )
+
+                events.append(
+                    {
+                        "eventTimestamp": parse_apiary_timestamp_to_unix_millis(item["id"]["time"]),
+                        "eventDescription": event_description,
+                        "eventLink": None,
+                    }
+                    | get_actor(**item["actor"], customer_id=item["id"]["customerId"])
+                )
+
+        login_events = activities.list(
+            userKey=workspace_account["id"],
+            applicationName="login",
+        ).execute()
+
+        if "items" in login_events and login_events["items"] is not None:
+            for item in login_events["items"]:
+                print(dumps(item))
+
+                if "events" in item and item["events"] is not None and len(item["events"]) > 0:
+                    if "name" in item["events"][0] and item["events"][0]["name"] == "login_success":
+                        event_description = (
+                            "logged in to Google Workspace using "
+                            + get_parameter_value("login_type", item["events"][0]["parameters"])
+                        )
+
+                    elif (
+                        "name" in item["events"][0] and item["events"][0]["name"] == "login_failure"
+                    ):
+                        event_description = (
+                            "failed login to Google Workspace using "
+                            + get_parameter_value("login_type", item["events"][0]["parameters"])
+                        )
+
+                    elif "name" in item["events"][0] and item["events"][0]["name"] in (
+                        "login_verification",
+                        "login_challenge",
+                    ):
+                        event_description = (
+                            get_parameter_value(
+                                "login_challenge_status", item["events"][0]["parameters"]
+                            )
+                            + " login challenge for Google Workspace using "
+                            + get_parameter_value(
+                                "login_challenge_method", item["events"][0]["parameters"]
+                            )
+                        )
+
+                    elif (
+                        "name" in item["events"][0]
+                        and item["events"][0]["name"] == "titanium_enroll"
+                    ):
+                        event_description = "enrolled in Advanced Protection for Google Workspace"
+
+                    elif (
+                        "name" in item["events"][0]
+                        and item["events"][0]["name"] == "recovery_email_edit"
+                    ):
+                        event_description = "updated recovery email for Google Workspace"
+
+                    elif (
+                        "name" in item["events"][0]
+                        and item["events"][0]["name"] == "recovery_phone_edit"
+                    ):
+                        event_description = "updated recovery phone for Google Workspace"
+
+                    elif "name" in item["events"][0] and item["events"][0]["name"] == "logout":
+                        event_description = "logged out of Google Workspace"
+
+                    elif (
+                        "name" in item["events"][0]
+                        and item["events"][0]["name"] == "blocked_sender"
+                    ):
+                        event_description = (
+                            "blocked sender "
+                            + get_parameter_value(
+                                "affected_email_address", item["events"][0]["parameters"]
+                            )
+                            + " in Gmail"
+                        )
+
+                    else:
+                        raise InternalServerError(
+                            "Unable to determine login event type: " + dumps(item)
+                        )
+
+                events.append(
+                    {
+                        "eventTimestamp": parse_apiary_timestamp_to_unix_millis(item["id"]["time"]),
+                        "eventDescription": event_description,
+                        "eventLink": None,
+                    }
+                    | get_actor(**item["actor"], customer_id=item["id"]["customerId"])
+                )
+
     return events
+
+
+def get_parameter_value(name: str, parameters: List[Dict[str, str]]) -> str:
+    """
+    Get the value for a parameter from a Google Workspace audit event
+    """
+    for parameter in parameters:
+        if parameter["name"] == name:
+            if "value" in parameter:
+                return parameter["value"]
+
+            return " and ".join(parameter["multiValue"])
+
+    raise InternalServerError("Missing parameter " + name + " in " + dumps(parameters))
 
 
 def get_relationship_description(relationship_type: str, action: Dict[str, Any]) -> str:
@@ -2377,6 +2670,203 @@ def parse_apiary_timestamp_to_unix_millis(timestamp: str) -> int:
         datetime.datetime.fromisoformat(timestamp).replace(tzinfo=datetime.timezone.utc).timestamp()
         * 1000
     )
+
+
+def get_email_addresses(directory_id: str) -> set[str]:
+    """
+    Collect all known email addresses for a given gtPersonDirectoryId from Apiary, Keycloak,
+    and Whitepages
+    """
+    email_addresses = set[str]()
+
+    apiary_account = get_apiary_account(directory_id)
+
+    if "gmail_address" in apiary_account and apiary_account["gmail_address"] is not None:
+        email_addresses.add(apiary_account["gmail_address"])
+    if "clickup_email" in apiary_account and apiary_account["clickup_email"] is not None:
+        email_addresses.add(apiary_account["clickup_email"])
+    if "gt_email" in apiary_account and apiary_account["gt_email"] is not None:
+        email_addresses.add(apiary_account["gt_email"])
+
+    keycloak_account = get_keycloak_account(directory_id)
+
+    if "email" in keycloak_account and keycloak_account["email"] is not None:
+        email_addresses.add(keycloak_account["email"])
+
+    google_workspace_account = get_attribute_value("googleWorkspaceAccount", keycloak_account)
+    if google_workspace_account is not None:
+        email_addresses.add(google_workspace_account)
+
+    ramp_login_email_address = get_attribute_value("rampLoginEmailAddress", keycloak_account)
+    if ramp_login_email_address is not None:
+        email_addresses.add(ramp_login_email_address)
+
+    whitepages_entries = get_whitepages_records(directory_id)
+
+    for entry in whitepages_entries:
+        uid = get_attribute_value("primaryUid", entry)
+        if uid is not None:
+            email_addresses.add(uid + "@gatech.edu")
+
+        mail = get_attribute_value("mail", entry)
+        if mail is not None:
+            email_addresses.add(mail)
+
+    for email_address in email_addresses:
+        db().execute(
+            (
+                "INSERT INTO crosswalk_email_address (email_address, gt_person_directory_id)"  # noqa
+                " VALUES (:email_address, :gt_person_directory_id)"
+                " ON CONFLICT DO UPDATE SET gt_person_directory_id = (:gt_person_directory_id) WHERE email_address = (:email_address)"  # noqa
+            ),
+            {
+                "email_address": email_address,
+                "gt_person_directory_id": directory_id,
+            },
+        )
+
+    cursor = db().execute(
+        "SELECT email_address FROM crosswalk_email_address WHERE gt_person_directory_id = (:directory_id)",  # noqa
+        {"directory_id": directory_id},
+    )
+    rows = cursor.fetchall()
+
+    for row in rows:
+        email_addresses.add(row[0])
+
+    return email_addresses
+
+
+@app.get("/view/<directory_id>/google-groups")
+def get_google_groups(directory_id: str) -> Any:
+    """
+    Get Google Groups for a given gtPersonDirectoryId
+    """
+    if "has_access" not in session:
+        raise Unauthorized("Not authenticated")
+
+    if session["has_access"] is not True:
+        raise Forbidden("Access denied")
+
+    email_addresses = get_email_addresses(directory_id)
+
+    credentials = service_account.Credentials.from_service_account_info(  # type: ignore
+        info=app.config["GOOGLE_SERVICE_ACCOUNT_CREDENTIALS"],
+        scopes=["https://www.googleapis.com/auth/admin.directory.group.readonly"],
+        subject=app.config["GOOGLE_SUBJECT"],
+    )
+    groups = build(  # pylint: disable=no-member
+        serviceName="admin", version="directory_v1", credentials=credentials
+    ).groups()
+
+    group_memberships = {}
+
+    for email_address in email_addresses:
+        group_memberships[email_address] = groups.list(userKey=email_address).execute()
+
+    return group_memberships
+
+
+@app.get("/view/<directory_id>/google-workspace")
+def get_google_workspace_account(directory_id: str) -> Any:
+    """
+    Get Google Workspace account for a given gtPersonDirectoryId
+    """
+    if "has_access" not in session:
+        raise Unauthorized("Not authenticated")
+
+    if session["has_access"] is not True:
+        raise Forbidden("Access denied")
+
+    credentials = service_account.Credentials.from_service_account_info(  # type: ignore
+        info=app.config["GOOGLE_SERVICE_ACCOUNT_CREDENTIALS"],
+        scopes=["https://www.googleapis.com/auth/admin.directory.user.readonly"],
+        subject=app.config["GOOGLE_SUBJECT"],
+    )
+    users = build(  # pylint: disable=no-member
+        serviceName="admin", version="directory_v1", credentials=credentials
+    ).users()
+
+    cursor = db().execute(
+        "SELECT google_workspace_user_id FROM crosswalk WHERE gt_person_directory_id = (:directory_id)",  # noqa
+        {"directory_id": directory_id},
+    )
+    row = cursor.fetchone()
+
+    if row is not None and row[0] is not None:
+        workspace_account = users.get(userKey=row[0]).execute()
+        for email in workspace_account["emails"]:
+            db().execute(
+                (
+                    "INSERT INTO crosswalk_email_address (email_address, gt_person_directory_id)"  # noqa
+                    " VALUES (:email_address, :gt_person_directory_id)"
+                    " ON CONFLICT DO UPDATE SET gt_person_directory_id = (:gt_person_directory_id) WHERE email_address = (:email_address)"  # noqa
+                ),
+                {
+                    "email_address": email["address"],
+                    "gt_person_directory_id": directory_id,
+                },
+            )
+
+        if "recoveryEmail" in workspace_account and workspace_account["recoveryEmail"] is not None:
+            db().execute(
+                (
+                    "INSERT INTO crosswalk_email_address (email_address, gt_person_directory_id)"  # noqa
+                    " VALUES (:email_address, :gt_person_directory_id)"
+                    " ON CONFLICT DO UPDATE SET gt_person_directory_id = (:gt_person_directory_id) WHERE email_address = (:email_address)"  # noqa
+                ),
+                {
+                    "email_address": workspace_account["recoveryEmail"],
+                    "gt_person_directory_id": directory_id,
+                },
+            )
+
+        return workspace_account
+
+    keycloak_account = get_keycloak_account(directory_id)
+
+    google_workspace_account = get_attribute_value("googleWorkspaceAccount", keycloak_account)
+    if google_workspace_account is not None:
+        workspace_account = users.get(userKey=google_workspace_account).execute()
+
+        db().execute(
+            (
+                "UPDATE crosswalk SET google_workspace_user_id = (:google_workspace_user_id) WHERE gt_person_directory_id = (:gt_person_directory_id)"  # noqa
+            ),
+            {
+                "google_workspace_user_id": workspace_account["id"],
+                "gt_person_directory_id": directory_id,
+            },
+        )
+        for email in workspace_account["emails"]:
+            db().execute(
+                (
+                    "INSERT INTO crosswalk_email_address (email_address, gt_person_directory_id)"  # noqa
+                    " VALUES (:email_address, :gt_person_directory_id)"
+                    " ON CONFLICT DO UPDATE SET gt_person_directory_id = (:gt_person_directory_id) WHERE email_address = (:email_address)"  # noqa
+                ),
+                {
+                    "email_address": email["address"],
+                    "gt_person_directory_id": directory_id,
+                },
+            )
+
+        if "recoveryEmail" in workspace_account and workspace_account["recoveryEmail"] is not None:
+            db().execute(
+                (
+                    "INSERT INTO crosswalk_email_address (email_address, gt_person_directory_id)"  # noqa
+                    " VALUES (:email_address, :gt_person_directory_id)"
+                    " ON CONFLICT DO UPDATE SET gt_person_directory_id = (:gt_person_directory_id) WHERE email_address = (:email_address)"  # noqa
+                ),
+                {
+                    "email_address": workspace_account["recoveryEmail"],
+                    "gt_person_directory_id": directory_id,
+                },
+            )
+
+        return workspace_account
+
+    return {}
 
 
 @app.get("/ping")
