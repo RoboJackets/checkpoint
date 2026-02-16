@@ -16,6 +16,7 @@ from re import IGNORECASE, fullmatch
 from sqlite3 import connect
 from typing import Any, Dict, List, Union
 from urllib.parse import urlparse, urlunparse
+from zoneinfo import ZoneInfo
 
 from authlib.integrations.flask_client import OAuth
 from authlib.integrations.requests_client import OAuth2Session
@@ -2580,15 +2581,21 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
 
     if "wsMemberships" in grouper_events and grouper_events["wsMemberships"] is not None:
         for membership in grouper_events["wsMemberships"]:
-                events.append(
-                    {
-                        "eventTimestamp": parse_grouper_timestamp_to_unix_millis(membership["createTime"]),
-                        "eventDescription": "added " + membership["subjectId"] + " to " + membership["groupName"] + " in Grouper",
-                        "eventLink": None,
-                        "actorDisplayName": "system",
-                        "actorLink": None,
-                    }
-                )
+            events.append(
+                {
+                    "eventTimestamp": parse_grouper_timestamp_to_unix_millis(
+                        membership["createTime"]
+                    ),
+                    "eventDescription": "added "
+                    + membership["subjectId"]
+                    + " to "
+                    + membership["groupName"]
+                    + " in Grouper",
+                    "eventLink": None,
+                    "actorDisplayName": "system",
+                    "actorLink": None,
+                }
+            )
 
     return events
 
@@ -2690,8 +2697,6 @@ def parse_grouper_timestamp_to_unix_millis(timestamp: str) -> int:
     """
     Convert a timestamp from Grouper into Unix milliseconds to send to the frontend
     """
-    from zoneinfo import ZoneInfo
-
     eastern = ZoneInfo("America/New_York")
     dt = datetime.datetime.strptime(timestamp, "%Y/%m/%d %H:%M:%S.%f")
     dt_eastern = dt.replace(tzinfo=eastern)
