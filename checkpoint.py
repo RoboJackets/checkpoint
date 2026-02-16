@@ -2415,7 +2415,7 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
                     )
 
                 event_description = (
-                    event_type + " " + member_id + " " + to_from + " group " + group_id  # type: ignore
+                    event_type + " " + member_id + " " + to_from + " group " + group_id  # type: ignore  # noqa
                 )
 
                 events.append(
