@@ -38,7 +38,7 @@ from ldap3 import (
 from ldap3.operation.search import search_operation
 from ldap3.utils.log import EXTENDED, set_library_log_detail_level
 
-from requests import post
+from requests import get, post
 
 import sentry_sdk
 from sentry_sdk import set_user
@@ -2576,6 +2576,20 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
                     | get_actor(**item["actor"], customer_id=item["id"]["customerId"])
                 )
 
+    grouper_events = get_grouper_memberships(directory_id)
+
+    if "wsMemberships" in grouper_events and grouper_events["wsMemberships"] is not None:
+        for membership in grouper_events["wsMemberships"]:
+                events.append(
+                    {
+                        "eventTimestamp": parse_grouper_timestamp_to_unix_millis(membership["createTime"]),
+                        "eventDescription": "added " + membership["subjectId"] + " to " + membership["groupName"] + " in Grouper",
+                        "eventLink": None,
+                        "actorDisplayName": "system",
+                        "actorLink": None,
+                    }
+                )
+
     return events
 
 
@@ -2670,6 +2684,18 @@ def parse_apiary_timestamp_to_unix_millis(timestamp: str) -> int:
         datetime.datetime.fromisoformat(timestamp).replace(tzinfo=datetime.timezone.utc).timestamp()
         * 1000
     )
+
+
+def parse_grouper_timestamp_to_unix_millis(timestamp: str) -> int:
+    """
+    Convert a timestamp from Grouper into Unix milliseconds to send to the frontend
+    """
+    from zoneinfo import ZoneInfo
+
+    eastern = ZoneInfo("America/New_York")
+    dt = datetime.datetime.strptime(timestamp, "%Y/%m/%d %H:%M:%S.%f")
+    dt_eastern = dt.replace(tzinfo=eastern)
+    return int(dt_eastern.timestamp() * 1000)
 
 
 def get_email_addresses(directory_id: str) -> set[str]:
@@ -2867,6 +2893,48 @@ def get_google_workspace_account(directory_id: str) -> Any:
         return workspace_account
 
     return {}
+
+
+@app.get("/view/<directory_id>/grouper")
+def get_grouper_memberships(directory_id: str) -> Dict[str, Any]:
+    """
+    Get Grouper group memberships for a given gtPersonDirectoryId
+    """
+    if "has_access" not in session:
+        raise Unauthorized("Not authenticated")
+
+    if session["has_access"] is not True:
+        raise Forbidden("Access denied")
+
+    cursor = db().execute(
+        "SELECT primary_username FROM crosswalk WHERE gt_person_directory_id = (:directory_id)",
+        {"directory_id": directory_id},
+    )
+    row = cursor.fetchone()
+
+    if row is not None:
+        primary_username = row[0]
+    else:
+        gted_account = get_gted_primary_account(gtPersonDirectoryId=directory_id)
+
+        if gted_account is None:
+            raise NotFound("Provided directory ID was not found in Crosswalk or GTED")
+
+        primary_username = gted_account["gtPrimaryGTAccountUsername"]
+
+    grouper_response = get(
+        url="https://grouper.gatech.edu/grouper-ws/servicesRest/v4_0_000/subjects/"
+        + primary_username
+        + "/memberships",
+        auth=(app.config["GROUPER_USERNAME"], app.config["GROUPER_PASSWORD"]),
+        headers={
+            "User-Agent": USER_AGENT,
+        },
+        timeout=(5, 30),
+    )
+    grouper_response.raise_for_status()
+
+    return grouper_response.json()["WsGetMembershipsResults"]  # type: ignore
 
 
 @app.get("/ping")

@@ -175,6 +175,7 @@ type alias SelectedUser =
     , whitepagesEntries : Maybe (Result Http.Error (List WhitepagesEntry))
     , gtedAccounts : Maybe (Result Http.Error (List GtedAccount))
     , keycloakAccount : Maybe (Result Http.Error (Maybe KeycloakAccount))
+    , grouperMemberships : Maybe (Result Http.Error (List String))
     , apiaryUser : Maybe (Result Http.Error (Maybe ApiaryUser))
     , events : Maybe (Result Http.Error (List Event))
     , googleGroups : Maybe (Result Http.Error AllGoogleAccountGroups)
@@ -213,6 +214,7 @@ type Msg
     | WhitepagesEntriesReceived (Result Http.Error (List WhitepagesEntry))
     | GtedAccountsReceived (Result Http.Error (List GtedAccount))
     | KeycloakAccountReceived (Result Http.Error (Maybe KeycloakAccount))
+    | GrouperMembershipsReceived (Result Http.Error (List String))
     | ApiaryUserReceived (Result Http.Error (Maybe ApiaryUser))
     | EventsReceived (Result Http.Error (List Event))
     | GoogleGroupsReceived (Result Http.Error AllGoogleAccountGroups)
@@ -333,7 +335,7 @@ update msg model =
                     case result of
                         Ok searchResults ->
                             if searchResults.exactMatch && List.length searchResults.results == 1 then
-                                Just { directoryId = (Maybe.withDefault { directoryId = "", givenName = "", surname = "", title = Nothing, organizationalUnit = Nothing, primaryAffiliation = Nothing, affiliations = [] } (List.head searchResults.results)).directoryId, whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing }
+                                Just { directoryId = (Maybe.withDefault { directoryId = "", givenName = "", surname = "", title = Nothing, organizationalUnit = Nothing, primaryAffiliation = Nothing, affiliations = [] } (List.head searchResults.results)).directoryId, whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, grouperMemberships = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing }
 
                             else
                                 Nothing
@@ -385,6 +387,19 @@ update msg model =
                     case model.selectedUser of
                         Just selectedUser ->
                             Just { selectedUser | keycloakAccount = Just result }
+
+                        Nothing ->
+                            Nothing
+              }
+            , Cmd.none
+            )
+
+        GrouperMembershipsReceived result ->
+            ( { model
+                | selectedUser =
+                    case model.selectedUser of
+                        Just selectedUser ->
+                            Just { selectedUser | grouperMemberships = Just result }
 
                         Nothing ->
                             Nothing
@@ -465,7 +480,7 @@ update msg model =
                 , selectedUser =
                     case Url.Parser.parse urlParser url of
                         Just (ViewPerson directoryId) ->
-                            Just { directoryId = directoryId, whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing }
+                            Just { directoryId = directoryId, whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, grouperMemberships = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing }
 
                         _ ->
                             Nothing
@@ -571,6 +586,7 @@ buildInitialModel serverData url navKey =
                         Nothing
                         Nothing
                         Nothing
+                        Nothing
                     )
 
             _ ->
@@ -621,6 +637,14 @@ keycloakResponseDecoder =
             (at [ "enabled" ] Json.Decode.bool)
             (maybe (at [ "attributes" ] (Json.Decode.dict (Json.Decode.list string))))
         )
+
+
+grouperResponseDecoder : Decoder (List String)
+grouperResponseDecoder =
+    Json.Decode.oneOf
+        [ Json.Decode.field "wsGroups" (Json.Decode.list (Json.Decode.field "extension" string))
+        , Json.Decode.succeed []
+        ]
 
 
 apiaryTeamDecoder : Decoder Group
@@ -1240,6 +1264,13 @@ fetchViewPersonData directoryId =
         , Http.get
             { url =
                 Url.Builder.absolute
+                    [ "view", directoryId, "grouper" ]
+                    []
+            , expect = expectJson GrouperMembershipsReceived grouperResponseDecoder
+            }
+        , Http.get
+            { url =
+                Url.Builder.absolute
                     [ "view", directoryId, "apiary" ]
                     []
             , expect = expectJson ApiaryUserReceived apiaryResponseDecoder
@@ -1614,7 +1645,7 @@ viewPerson model =
                             [ div [ class "card" ]
                                 [ div [ class "card-body" ]
                                     [ h6 [] [ text "Google Groups" ]
-                                    , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing } model.selectedUser).directoryId, "google-groups" ] []), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View raw" ]
+                                    , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, grouperMemberships = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing } model.selectedUser).directoryId, "google-groups" ] []), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View raw" ]
                                     , table [ class "table", class "table-borderless", class "m-0" ]
                                         [ tbody []
                                             [ tr []
@@ -1638,7 +1669,7 @@ viewPerson model =
                                 [ div [ class "card-body" ]
                                     [ h6 [] [ text "Google Workspace" ]
                                     , a [ target "_blank", href ("https://www.google.com/a/robojackets.org/ServiceLogin?continue=https://admin.google.com/ac/search?query=" ++ getGoogleWorkspacePrimaryEmail model), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View in Google Workspace" ]
-                                    , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing } model.selectedUser).directoryId, "google-workspace" ] []), class "position-absolute", style "top" "36px", style "right" "14px" ] [ text "View raw" ]
+                                    , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, grouperMemberships = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing } model.selectedUser).directoryId, "google-workspace" ] []), class "position-absolute", style "top" "36px", style "right" "14px" ] [ text "View raw" ]
                                     , table [ class "table", class "table-borderless", class "m-0" ]
                                         [ tbody []
                                             [ tr []
@@ -1670,7 +1701,7 @@ viewPerson model =
                             [ div [ class "card" ]
                                 [ div [ class "card-body" ]
                                     ([ h6 [] [ text "Whitepages" ]
-                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing } model.selectedUser).directoryId, "whitepages" ] []), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View raw" ]
+                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, grouperMemberships = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing } model.selectedUser).directoryId, "whitepages" ] []), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View raw" ]
                                      ]
                                         ++ (case model.selectedUser of
                                                 Just selectedUser ->
@@ -1717,8 +1748,8 @@ viewPerson model =
                             [ div [ class "card" ]
                                 [ div [ class "card-body" ]
                                     ([ h6 [] [ text "GTED" ]
-                                     , a [ target "_blank", href ("https://iat.gatech.edu/prod/person/" ++ (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing } model.selectedUser).directoryId), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View in IAT" ]
-                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing } model.selectedUser).directoryId, "gted" ] []), class "position-absolute", style "top" "36px", style "right" "14px" ] [ text "View raw" ]
+                                     , a [ target "_blank", href ("https://iat.gatech.edu/prod/person/" ++ (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, grouperMemberships = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing } model.selectedUser).directoryId), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View in IAT" ]
+                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, grouperMemberships = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing } model.selectedUser).directoryId, "gted" ] []), class "position-absolute", style "top" "36px", style "right" "14px" ] [ text "View raw" ]
                                      ]
                                         ++ (case model.selectedUser of
                                                 Just selectedUser ->
@@ -1772,9 +1803,57 @@ viewPerson model =
                         , div [ class "col-3" ]
                             [ div [ class "card" ]
                                 [ div [ class "card-body" ]
+                                    ([ h6 [] [ text "Grouper" ]
+                                     , a [ target "_blank", href ("https://grouper.gatech.edu/grouper/grouperUi/app/UiV2Main.index?operation=UiV2Subject.viewSubject&subjectId=" ++ getPrimaryUsername model ++ "&sourceId=gted-accounts"), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View in Grouper" ]
+                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, grouperMemberships = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing } model.selectedUser).directoryId, "grouper" ] []), class "position-absolute", style "top" "36px", style "right" "14px" ] [ text "View raw" ]
+                                     ]
+                                        ++ (case model.selectedUser of
+                                                Just selectedUser ->
+                                                    case selectedUser.grouperMemberships of
+                                                        Just (Err _) ->
+                                                            []
+
+                                                        Just (Ok groups) ->
+                                                            case List.length groups of
+                                                                0 ->
+                                                                    [ div [] [ text "No groups" ] ]
+
+                                                                1 ->
+                                                                    [ div [ class "mb-1" ] [ text "1 group" ] ]
+
+                                                                _ ->
+                                                                    [ div [ class "mb-1" ] [ text (String.fromInt (List.length groups) ++ " groups") ] ]
+
+                                                        Nothing ->
+                                                            [ div [ class "placeholder-wave", class "mb-1" ] [ span [ class "placeholder", class "col-1" ] [] ] ]
+
+                                                Nothing ->
+                                                    []
+                                           )
+                                        ++ (case model.selectedUser of
+                                                Just selectedUser ->
+                                                    case selectedUser.grouperMemberships of
+                                                        Just (Err _) ->
+                                                            []
+
+                                                        Just (Ok groups) ->
+                                                            List.map (\groupName -> span [ class "badge", class "rounded-pill", class "text-bg-primary", class "me-1" ] [ text groupName ]) groups
+
+                                                        Nothing ->
+                                                            [ div [ class "placeholder-wave" ] [ span [ class "placeholder", class "rounded-pill", class "col-1" ] [] ] ]
+
+                                                Nothing ->
+                                                    []
+                                           )
+                                    )
+                                ]
+                            ]
+                        , div [ class "col-3" ]
+                            [ div [ class "card" ]
+                                [ div [ class "card-body" ]
                                     ([ h6 [] [ text "Keycloak" ]
                                      , a [ target "_blank", href (model.keycloakDeepLinkBaseUrl ++ getKeycloakUserId model ++ "/settings"), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View in Keycloak" ]
-                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing } model.selectedUser).directoryId, "keycloak" ] []), class "position-absolute", style "top" "36px", style "right" "14px" ] [ text "View raw" ]
+                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, grouperMemberships = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing } model.selectedUser).directoryId, "keycloak" ] []), class "position-absolute", style "top" "36px", style "right" "14px" ] [ text "View raw" ]
                                      ]
                                         ++ (case model.selectedUser of
                                                 Just selectedUser ->
@@ -1824,7 +1903,7 @@ viewPerson model =
                                 [ div [ class "card-body" ]
                                     ([ h6 [] [ text "Apiary" ]
                                      , a [ target "_blank", href (model.apiaryBaseUrl ++ "/nova/resources/users/" ++ getApiaryUserId model), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View in Apiary" ]
-                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing } model.selectedUser).directoryId, "apiary" ] []), class "position-absolute", style "top" "36px", style "right" "14px" ] [ text "View raw" ]
+                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, grouperMemberships = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing } model.selectedUser).directoryId, "apiary" ] []), class "position-absolute", style "top" "36px", style "right" "14px" ] [ text "View raw" ]
                                      ]
                                         ++ (case model.selectedUser of
                                                 Just selectedUser ->
@@ -1928,6 +2007,26 @@ viewPerson model =
             )
         ]
     }
+
+
+getPrimaryUsername : Model -> String
+getPrimaryUsername model =
+    case model.selectedUser of
+        Just selectedUser ->
+            case selectedUser.gtedAccounts of
+                Just (Ok accounts) ->
+                    case List.head accounts of
+                        Just account ->
+                            account.gtPrimaryGTAccountUsername
+
+                        Nothing ->
+                            ""
+
+                _ ->
+                    ""
+
+        _ ->
+            ""
 
 
 getKeycloakUserId : Model -> String
