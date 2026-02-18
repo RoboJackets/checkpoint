@@ -157,6 +157,29 @@ def get_majors() -> Dict[str, str]:
     return {major["whitepages_ou"]: major["display_name"] for major in data["majors"]}
 
 
+@cache.cached(key_prefix="grouper_groups")
+def get_grouper_groups() -> List[str]:
+    """
+    Fetch all Grouper groups under gt:services:robojackets and return extension names
+    """
+    response = post(
+        url="https://grouper.gatech.edu/grouper-ws/servicesRest/v4_0_000/groups",
+        auth=(app.config["GROUPER_USERNAME"], app.config["GROUPER_PASSWORD"]),
+        headers={
+            "User-Agent": USER_AGENT,
+        },
+        json={
+            "WsRestFindGroupsLiteRequest": {
+                "stemName": "gt:services:robojackets",
+                "queryFilterType": "FIND_BY_STEM_NAME",
+            }
+        },
+        timeout=(5, 30),
+    )
+    response.raise_for_status()
+    return [group["extension"] for group in response.json()["WsFindGroupsResults"]["groupResults"]]
+
+
 def build_ldap_filter(**kwargs: str) -> str:
     """
     Builds up an LDAP filter from kwargs
@@ -811,6 +834,7 @@ def spa(directory_id: Union[str, None] = None) -> Any:  # pylint: disable=unused
         elm_model={
             "username": session["username"],
             "majors": get_majors(),
+            "grouperGroups": get_grouper_groups(),
             "keycloakDeepLinkBaseUrl": urlunparse(
                 (
                     urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,

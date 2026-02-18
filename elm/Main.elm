@@ -194,6 +194,7 @@ type alias Model =
     , route : Maybe Route
     , loggedInUsername : String
     , majors : Dict String (Maybe String)
+    , grouperGroups : List String
     , searchQuery : String
     , loadingSearchResults : Bool
     , searchResults : Maybe (Result Http.Error SearchResults)
@@ -559,6 +560,7 @@ buildInitialModel serverData url navKey =
         (Url.Parser.parse urlParser url)
         (String.trim (Result.withDefault "" (decodeValue (at [ "username" ] string) serverData)))
         (Result.withDefault Dict.empty (decodeValue (at [ "majors" ] (Json.Decode.dict (nullable string))) serverData))
+        (Result.withDefault [] (decodeValue (at [ "grouperGroups" ] (Json.Decode.list string)) serverData))
         (case Url.Parser.parse urlParser url of
             Just (ViewSearchResults query) ->
                 Maybe.withDefault "" query
