@@ -1183,7 +1183,6 @@ def get_gted_accounts(directory_id: str) -> List[Dict[str, Any]]:
     return accounts
 
 
-
 @app.get("/view/<directory_id>/gtad")
 def get_gtad_account(directory_id: str) -> Dict[str, Any]:
     """
@@ -1212,13 +1211,13 @@ def get_gtad_account(directory_id: str) -> Dict[str, Any]:
         primary_username = gted_account["gtPrimaryGTAccountUsername"]
 
     ldap = Connection(
-            Server("campusad.ad.gatech.edu", connect_timeout=1),
-            user=app.config["GTAD_BIND_DN"],
-            password=app.config["GTAD_BIND_PASSWORD"],
-            auto_bind=True,
-            raise_exceptions=True,
-            receive_timeout=1,
-        )
+        Server("campusad.ad.gatech.edu", connect_timeout=1),
+        user=app.config["GTAD_BIND_DN"],
+        password=app.config["GTAD_BIND_PASSWORD"],
+        auto_bind=True,
+        raise_exceptions=True,
+        receive_timeout=1,
+    )
     with sentry_sdk.start_span(op="ldap.search"):
         result = ldap.search(
             search_base="dc=ad,dc=gatech,dc=edu",
