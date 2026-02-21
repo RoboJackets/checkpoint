@@ -1161,7 +1161,7 @@ def get_whitepages_records(directory_id: str) -> Any:
 
         primary_username = gted_account["gtPrimaryGTAccountUsername"]
 
-    return search_whitepages(uid=primary_username)  # type: ignore
+    return search_whitepages(uid=primary_username)
 
 
 @app.get("/view/<directory_id>/gted")
