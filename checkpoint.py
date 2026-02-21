@@ -1135,7 +1135,7 @@ def search() -> (
 
 
 @app.get("/view/<directory_id>/whitepages")
-def get_whitepages_records(directory_id: str) -> List[Dict[str, Dict[str, List[str]]]]:
+def get_whitepages_records(directory_id: str) -> Any:
     """
     Get Whitepages entries for a provided gtPersonDirectoryId
     """
@@ -1184,7 +1184,7 @@ def get_gted_accounts(directory_id: str) -> List[Dict[str, Any]]:
 
 
 @app.get("/view/<directory_id>/gtad")
-def get_gtad_account(directory_id: str) -> Dict[str, Any]:
+def get_gtad_account(directory_id: str) -> Any:
     """
     Get the GTAD account for a given gtPersonDirectoryId
     """
