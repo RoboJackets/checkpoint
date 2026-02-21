@@ -1183,6 +1183,56 @@ def get_gted_accounts(directory_id: str) -> List[Dict[str, Any]]:
     return accounts
 
 
+
+@app.get("/view/<directory_id>/gtad")
+def get_gtad_account(directory_id: str) -> Dict[str, Any]:
+    """
+    Get the GTAD account for a given gtPersonDirectoryId
+    """
+    if "has_access" not in session:
+        raise Unauthorized("Not authenticated")
+
+    if session["has_access"] is not True:
+        raise Forbidden("Access denied")
+
+    cursor = db().execute(
+        "SELECT primary_username FROM crosswalk WHERE gt_person_directory_id = (:directory_id)",
+        {"directory_id": directory_id},
+    )
+    row = cursor.fetchone()
+
+    if row is not None:
+        primary_username = row[0]
+    else:
+        gted_account = get_gted_primary_account(gtPersonDirectoryId=directory_id)
+
+        if gted_account is None:
+            raise NotFound("Provided directory ID was not found in Crosswalk or GTED")
+
+        primary_username = gted_account["gtPrimaryGTAccountUsername"]
+
+    ldap = Connection(
+            Server("campusad.ad.gatech.edu", connect_timeout=1),
+            user=app.config["GTAD_BIND_DN"],
+            password=app.config["GTAD_BIND_PASSWORD"],
+            auto_bind=True,
+            raise_exceptions=True,
+            receive_timeout=1,
+        )
+    with sentry_sdk.start_span(op="ldap.search"):
+        result = ldap.search(
+            search_base="dc=ad,dc=gatech,dc=edu",
+            search_filter="(uid=" + primary_username + ")",
+            attributes=["*"],
+        )
+
+        if result is True:
+            for entry in ldap.entries:
+                return loads(entry.entry_to_json())
+
+    return {}
+
+
 @app.get("/view/<directory_id>/keycloak")
 def get_keycloak_account(directory_id: str) -> Dict[str, Any]:
     """
