@@ -61,6 +61,8 @@ job "checkpoint" {
 
   type = "service"
 
+  priority = 10
+
   group "checkpoint" {
     network {
       port "http" {}
