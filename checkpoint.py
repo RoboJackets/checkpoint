@@ -564,22 +564,19 @@ def get_actor(**kwargs: str) -> Dict[str, Union[str, None]]:
     raise InternalServerError("Unable to identify actor, given: " + dumps(kwargs))
 
 
-def get_client_display_name(auth_details: Dict[str, str]) -> str:
+def get_client_display_name(**kwargs: str) -> str:
     """
     Get the display name for a client from a Keycloak event
     """
-    if "realmId" in auth_details and "clientId" in auth_details:
+    if "realmId" in kwargs and "clientId" in kwargs:
         for realm in get_realms():
-            if auth_details["realmId"] == realm["id"]:
+            if kwargs["realmId"] == realm["id"]:
                 keycloak_response = keycloak.get(
                     url=urlunparse(
                         (
                             urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,
                             urlparse(app.config["KEYCLOAK_METADATA_URL"]).hostname,
-                            "/admin/realms/"
-                            + realm["realm"]
-                            + "/clients/"
-                            + auth_details["clientId"],
+                            "/admin/realms/" + realm["realm"] + "/clients/" + kwargs["clientId"],
                             "",
                             "",
                             "",
@@ -1666,10 +1663,47 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
                     "updated "
                     + get_actor(gtPersonDirectoryId=directory_id)["actorDisplayName"]
                     + "'s Keycloak account using "
-                    + get_client_display_name(event["authDetails"])
+                    + get_client_display_name(**event["authDetails"])
+                )
+            elif (
+                event["operationType"] == "CREATE"
+                and "resourceType" in event
+                and event["resourceType"] == "CLIENT_ROLE_MAPPING"
+            ):
+                description = (
+                    "attached "
+                    + get_client_display_name(
+                        realmId=event["realmId"], clientId=event["resourcePath"].split("/")[-1]
+                    )
+                    + " "
+                    + loads(event["representation"])[0]["name"]
+                    + " role to "
+                    + get_actor(gtPersonDirectoryId=directory_id)["actorDisplayName"]
+                    + "'s Keycloak account using "
+                    + get_client_display_name(**event["authDetails"])
+                )
+            elif (
+                event["operationType"] == "DELETE"
+                and "resourceType" in event
+                and event["resourceType"] == "CLIENT_ROLE_MAPPING"
+            ):
+                description = (
+                    "detached "
+                    + get_client_display_name(
+                        realmId=event["realmId"], clientId=event["resourcePath"].split("/")[-1]
+                    )
+                    + " "
+                    + loads(event["representation"])[0]["name"]
+                    + " role from "
+                    + get_actor(gtPersonDirectoryId=directory_id)["actorDisplayName"]
+                    + "'s Keycloak account using "
+                    + get_client_display_name(**event["authDetails"])
                 )
             else:
-                raise InternalServerError("Unrecognized operationType in Keycloak event")
+                print(dumps(event))
+                raise InternalServerError(
+                    "Unrecognized operationType in Keycloak event: " + event["operationType"]
+                )
 
             events.append(
                 {
