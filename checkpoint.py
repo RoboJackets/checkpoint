@@ -3248,23 +3248,27 @@ def handle_event_callback(body: Dict[str, Any]) -> Dict[str, str]:
     if "thread_ts" in event:
         return {"status": "ok"}
 
-    author_user_info = slack.users_info(user=event["user"])
+    mentioned_users = re.findall(r"<@(U[A-Z0-9]+)>", event.get("text", ""))
 
-    author_email: Union[str, None] = None
+    lookup_user_id = mentioned_users[0] if len(mentioned_users) == 1 else event["user"]
 
-    if author_user_info.get("ok") is True:
-        author_profile: Any = author_user_info.get("user", {})
-        author_email = author_profile.get("profile", {}).get("email")
+    lookup_user_info = slack.users_info(user=lookup_user_id)
 
-    if author_email is None:
+    lookup_email: Union[str, None] = None
+
+    if lookup_user_info.get("ok") is True:
+        lookup_profile: Any = lookup_user_info.get("user", {})
+        lookup_email = lookup_profile.get("profile", {}).get("email")
+
+    if lookup_email is None:
         return {"status": "ok"}
 
-    author_results = search_by_email(Address(addr_spec=author_email))
+    lookup_results = search_by_email(Address(addr_spec=lookup_email))
 
-    if len(author_results["results"]) == 0:
+    if len(lookup_results["results"]) == 0:
         return {"status": "ok"}
 
-    blocks = format_search_result_blocks(author_results)
+    blocks = format_search_result_blocks(lookup_results)
 
     ephemeral_users = app.config.get("SLACK_EPHEMERAL_USERS", "")
     if isinstance(ephemeral_users, str):
@@ -3273,17 +3277,17 @@ def handle_event_callback(body: Dict[str, Any]) -> Dict[str, str]:
         user_ids = []
 
     plain_text = (
-        author_results["results"][0]["givenName"] + " " + author_results["results"][0]["surname"]
+        lookup_results["results"][0]["givenName"] + " " + lookup_results["results"][0]["surname"]
     )
 
-    if author_results["results"][0]["title"] is not None:
-        plain_text += " - " + author_results["results"][0]["title"]
+    if lookup_results["results"][0]["title"] is not None:
+        plain_text += " - " + lookup_results["results"][0]["title"]
 
-    if author_results["results"][0]["organizationalUnit"] is not None:
-        if author_results["results"][0]["organizationalUnit"] in get_majors():
-            plain_text += " - " + get_majors()[author_results["results"][0]["organizationalUnit"]]
+    if lookup_results["results"][0]["organizationalUnit"] is not None:
+        if lookup_results["results"][0]["organizationalUnit"] in get_majors():
+            plain_text += " - " + get_majors()[lookup_results["results"][0]["organizationalUnit"]]
         else:
-            plain_text += " - " + author_results["results"][0]["organizationalUnit"]
+            plain_text += " - " + lookup_results["results"][0]["organizationalUnit"]
 
     for user_id in user_ids:
         slack.chat_postEphemeral(
