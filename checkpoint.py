@@ -3245,6 +3245,9 @@ def handle_event_callback(body: Dict[str, Any]) -> Dict[str, str]:
     if "user" not in event or "channel" not in event:
         return {"status": "ok"}
 
+    if "thread_ts" in event:
+        return {"status": "ok"}
+
     author_user_info = slack.users_info(user=event["user"])
 
     author_email: Union[str, None] = None
