@@ -2738,6 +2738,17 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
                             + get_parameter_value("GROUP_EMAIL", item["events"][0]["parameters"])
                         )
 
+                    if (
+                        "name" in item["events"][0]
+                        and item["events"][0]["name"] == "REMOVE_GROUP_MEMBER"
+                    ):
+                        event_description = (
+                            "removed "
+                            + get_parameter_value("USER_EMAIL", item["events"][0]["parameters"])
+                            + " from group "
+                            + get_parameter_value("GROUP_EMAIL", item["events"][0]["parameters"])
+                        )
+
                     elif (
                         "name" in item["events"][0]
                         and item["events"][0]["name"] == "USER_LICENSE_ASSIGNMENT"
