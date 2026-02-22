@@ -3378,7 +3378,9 @@ def handle_slack_event() -> Dict[str, str]:
         )
         return {"status": "ok"}
 
-    keycloak_account = get_keycloak_account(triggering_user_results["results"][0]["directoryId"], is_frontend_request=False)
+    keycloak_account = get_keycloak_account(
+        triggering_user_results["results"][0]["directoryId"], is_frontend_request=False
+    )
 
     if keycloak_account is None or "id" not in keycloak_account or keycloak_account["id"] is None:
         slack.views_open(
