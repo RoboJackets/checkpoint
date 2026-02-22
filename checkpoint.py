@@ -1291,6 +1291,49 @@ def get_keycloak_account(directory_id: str) -> Dict[str, Any]:
     return {}
 
 
+@app.get("/view/<directory_id>/sums")
+def get_sums_membership(directory_id: str) -> Dict[str, bool]:
+    """
+    Get SUMS membership for a given gtPersonDirectoryId
+    """
+    if "has_access" not in session:
+        raise Unauthorized("Not authenticated")
+
+    if session["has_access"] is not True:
+        raise Forbidden("Access denied")
+
+    cursor = db().execute(
+        "SELECT primary_username FROM crosswalk WHERE gt_person_directory_id = (:directory_id)",
+        {"directory_id": directory_id},
+    )
+    row = cursor.fetchone()
+
+    if row is not None:
+        primary_username = row[0]
+    else:
+        gted_account = get_gted_primary_account(gtPersonDirectoryId=directory_id)
+
+        if gted_account is None:
+            raise NotFound("Provided directory ID was not found in Crosswalk or GTED")
+
+        primary_username = gted_account["gtPrimaryGTAccountUsername"]
+
+    sums_response = get(
+        url="https://sums.gatech.edu/SUMSAPI/rest/SCC_BGMembership/GetMemberships",
+        headers={
+            "User-Agent": USER_AGENT,
+        },
+        params={
+            "Key": app.config["SUMS_API_KEY"],
+            "GTUsername": primary_username,
+        },
+        timeout=(5, 5),
+    )
+    sums_response.raise_for_status()
+
+    return sums_response.json()  # type: ignore
+
+
 @app.get("/view/<directory_id>/apiary")
 def get_apiary_account(directory_id: str) -> Dict[str, Any]:
     """
