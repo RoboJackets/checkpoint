@@ -3378,15 +3378,9 @@ def handle_slack_event() -> Dict[str, str]:
         )
         return {"status": "ok"}
 
-    directory_id = triggering_user_results["results"][0]["directoryId"]
+    keycloak_account = get_keycloak_account(triggering_user_results["results"][0]["directoryId"], is_frontend_request=False)
 
-    cursor = db().execute(
-        "SELECT keycloak_user_id FROM crosswalk WHERE gt_person_directory_id = (:directory_id)",
-        {"directory_id": directory_id},
-    )
-    row = cursor.fetchone()
-
-    if row is None or row[0] is None:
+    if keycloak_account is None or "id" not in keycloak_account or keycloak_account["id"] is None:
         slack.views_open(
             trigger_id=payload["trigger_id"],
             view={
@@ -3405,7 +3399,7 @@ def handle_slack_event() -> Dict[str, str]:
         )
         return {"status": "ok"}
 
-    keycloak_user_id = row[0]
+    keycloak_user_id = keycloak_account["id"]
 
     role_mappings_response = keycloak.get(
         url=urlunparse(
