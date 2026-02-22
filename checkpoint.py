@@ -46,7 +46,10 @@ from sentry_sdk import set_user
 from sentry_sdk.integrations.flask import FlaskIntegration
 from sentry_sdk.integrations.pure_eval import PureEvalIntegration
 
-from werkzeug.exceptions import Forbidden, InternalServerError, NotFound, Unauthorized
+from slack_sdk import WebClient
+from slack_sdk.signature import SignatureVerifier
+
+from werkzeug.exceptions import BadRequest, Forbidden, InternalServerError, NotFound, Unauthorized
 
 logging.basicConfig()
 logging.getLogger().setLevel(logging.DEBUG)
@@ -129,6 +132,8 @@ apiary.fetch_token()
 
 cache = Cache(app)
 cache.clear()
+
+slack = WebClient(token=app.config["SLACK_BOT_TOKEN"])
 
 set_library_log_detail_level(EXTENDED)
 
@@ -760,6 +765,168 @@ def format_search_result(
     }
 
 
+def format_search_result_blocks(
+    search_results: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    """
+    Convert search results to Slack Block Kit blocks for a modal
+    """
+    if len(search_results["results"]) == 0:
+        return [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "No Georgia Tech account found for this user.",
+                },
+            }
+        ]
+
+    blocks: List[Dict[str, Any]] = []
+
+    for result in search_results["results"]:
+        lines = [f"*{result['givenName']} {result['surname']}*"]
+
+        detail_parts = []
+        if result.get("title"):
+            detail_parts.append(result["title"])
+
+        if result.get("organizationalUnit"):
+            if result["organizationalUnit"] in get_majors():
+                detail_parts.append(get_majors()[result["organizationalUnit"]])
+            else:
+                detail_parts.append(result["organizationalUnit"])
+
+        if detail_parts:
+            lines.append(" | ".join(detail_parts))
+
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "\n".join(lines),
+                },
+            }
+        )
+
+        cursor = db().execute(
+            "SELECT primary_username FROM crosswalk WHERE gt_person_directory_id = (:directory_id)",
+            {"directory_id": result["directoryId"]},
+        )
+        row = cursor.fetchone()
+
+        if row is not None:
+            primary_username = row[0]
+        else:
+            raise InternalServerError(
+                "Primary username not found for directory ID: " + result["directoryId"]
+            )
+
+        apiary_button = []
+
+        apiary_account = get_apiary_account(result["directoryId"], is_frontend_request=False)
+
+        if (
+            apiary_account is not None
+            and "id" in apiary_account
+            and apiary_account["id"] is not None
+        ):
+            apiary_button = [
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "View in Apiary"},
+                    "url": app.config["APIARY_BASE_URL"]
+                    + "/nova/resources/users/"
+                    + apiary_account["id"],
+                }
+            ]
+
+        keycloak_button = []
+
+        keycloak_account = get_keycloak_account(result["directoryId"], is_frontend_request=False)
+
+        if (
+            keycloak_account is not None
+            and "id" in keycloak_account
+            and keycloak_account["id"] is not None
+        ):
+            keycloak_button = [
+                {
+                    "text": {"type": "plain_text", "text": "View in Keycloak"},
+                    "url": urlunparse(
+                        (
+                            urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,
+                            urlparse(app.config["KEYCLOAK_METADATA_URL"]).hostname,
+                            "/admin/master/console/",
+                            "",
+                            "",
+                            "/"
+                            + app.config["KEYCLOAK_REALM"]
+                            + "/users/"
+                            + keycloak_account["id"]
+                            + "/settings",
+                        )
+                    ),
+                }
+            ]
+
+        google_workspace_button = []
+        google_workspace_account = get_google_workspace_account(
+            result["directoryId"], is_frontend_request=False
+        )
+
+        if (
+            google_workspace_account is not None
+            and "primaryEmail" in google_workspace_account
+            and google_workspace_account["primaryEmail"] is not None
+        ):
+            google_workspace_button = [
+                {
+                    "text": {"type": "plain_text", "text": "View in Google Workspace"},
+                    "url": "https://www.google.com/a/robojackets.org/ServiceLogin?continue=https://admin.google.com/ac/search?query="  # noqa
+                    + google_workspace_account["primaryEmail"],
+                }
+            ]
+
+        blocks.append(
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "View in Checkpoint"},
+                        "url": "https://checkpoint.bcdc.robojackets.net/view/"
+                        + result["directoryId"],
+                        "action_id": "view_in_checkpoint",
+                    },
+                    *apiary_button,
+                    {
+                        "type": "overflow",
+                        "action_id": "overflow_menu",
+                        "options": [
+                            {
+                                "text": {"type": "plain_text", "text": "View in IAT"},
+                                "url": "https://iat.gatech.edu/prod/person/"
+                                + result["directoryId"],
+                            },
+                            {
+                                "text": {"type": "plain_text", "text": "View in Grouper"},
+                                "url": "https://grouper.gatech.edu/grouper/grouperUi/app/UiV2Main.index?operation=UiV2Subject.viewSubject&subjectId="  # noqa
+                                + primary_username
+                                + "&sourceId=gted-accounts",
+                            },
+                            *keycloak_button,
+                            *google_workspace_button,
+                        ],
+                    },
+                ],
+            }
+        )
+
+    return blocks
+
+
 def db() -> sqlite3.Connection:
     """
     Get a connection to the database
@@ -886,6 +1053,7 @@ def login() -> Any:
     return redirect(session["next"])
 
 
+@cache.memoize()
 def search_by_username(username: str) -> Dict[str, Any]:
     """
     Search for a person by username
@@ -909,7 +1077,8 @@ def search_by_username(username: str) -> Dict[str, Any]:
     }
 
 
-def search_by_email(email_address: Address, with_gted: bool = True) -> Dict[str, Any]:
+@cache.memoize()
+def search_by_email(email_address: Address, with_gted: bool = True) -> Any:
     """
     Search for a person by email address
     """
@@ -1032,7 +1201,7 @@ def search_by_email(email_address: Address, with_gted: bool = True) -> Dict[str,
 
 @app.post("/search")
 def search() -> (
-    Dict[str, Any]
+    Any
 ):  # pylint: disable=too-many-return-statements,too-many-branches,too-many-statements
     """
     Search for people matching the provided query
@@ -1233,15 +1402,16 @@ def get_gtad_account(directory_id: str) -> Any:
 
 
 @app.get("/view/<directory_id>/keycloak")
-def get_keycloak_account(directory_id: str) -> Dict[str, Any]:
+def get_keycloak_account(directory_id: str, is_frontend_request: bool = True) -> Dict[str, Any]:
     """
     Get the Keycloak account for a given gtPersonDirectoryId
     """
-    if "has_access" not in session:
-        raise Unauthorized("Not authenticated")
+    if is_frontend_request:
+        if "has_access" not in session:
+            raise Unauthorized("Not authenticated")
 
-    if session["has_access"] is not True:
-        raise Forbidden("Access denied")
+        if session["has_access"] is not True:
+            raise Forbidden("Access denied")
 
     cursor = db().execute(
         "SELECT keycloak_user_id FROM crosswalk WHERE gt_person_directory_id = (:directory_id)",
@@ -1335,15 +1505,16 @@ def get_sums_membership(directory_id: str) -> Dict[str, bool]:
 
 
 @app.get("/view/<directory_id>/apiary")
-def get_apiary_account(directory_id: str) -> Dict[str, Any]:
+def get_apiary_account(directory_id: str, is_frontend_request: bool = True) -> Dict[str, Any]:
     """
     Get the Apiary user for a given gtPersonDirectoryId
     """
-    if "has_access" not in session:
-        raise Unauthorized("Not authenticated")
+    if is_frontend_request:
+        if "has_access" not in session:
+            raise Unauthorized("Not authenticated")
 
-    if session["has_access"] is not True:
-        raise Forbidden("Access denied")
+        if session["has_access"] is not True:
+            raise Forbidden("Access denied")
 
     cursor = db().execute(
         "SELECT primary_username FROM crosswalk WHERE gt_person_directory_id = (:directory_id)",
@@ -2915,15 +3086,16 @@ def get_google_groups(directory_id: str) -> Any:
 
 
 @app.get("/view/<directory_id>/google-workspace")
-def get_google_workspace_account(directory_id: str) -> Any:
+def get_google_workspace_account(directory_id: str, is_frontend_request: bool = True) -> Any:
     """
     Get Google Workspace account for a given gtPersonDirectoryId
     """
-    if "has_access" not in session:
-        raise Unauthorized("Not authenticated")
+    if is_frontend_request:
+        if "has_access" not in session:
+            raise Unauthorized("Not authenticated")
 
-    if session["has_access"] is not True:
-        raise Forbidden("Access denied")
+        if session["has_access"] is not True:
+            raise Forbidden("Access denied")
 
     credentials = service_account.Credentials.from_service_account_info(  # type: ignore
         info=app.config["GOOGLE_SERVICE_ACCOUNT_CREDENTIALS"],
@@ -2970,7 +3142,7 @@ def get_google_workspace_account(directory_id: str) -> Any:
 
         return workspace_account
 
-    keycloak_account = get_keycloak_account(directory_id)
+    keycloak_account = get_keycloak_account(directory_id, is_frontend_request=is_frontend_request)
 
     google_workspace_account = get_attribute_value("googleWorkspaceAccount", keycloak_account)
     if google_workspace_account is not None:
@@ -3056,6 +3228,275 @@ def get_grouper_memberships(directory_id: str) -> Dict[str, Any]:
     grouper_response.raise_for_status()
 
     return grouper_response.json()["WsGetMembershipsResults"]  # type: ignore
+
+
+def handle_event_callback(body: Dict[str, Any]) -> Dict[str, str]:
+    """
+    Handle an event callback from the Slack Events API
+    """
+    event = body.get("event", {})
+
+    if event.get("type") != "message":
+        return {"status": "ok"}
+
+    if "subtype" in event:
+        return {"status": "ok"}
+
+    if "user" not in event or "channel" not in event:
+        return {"status": "ok"}
+
+    author_user_info = slack.users_info(user=event["user"])
+
+    author_email: Union[str, None] = None
+
+    if author_user_info.get("ok") is True:
+        author_profile: Any = author_user_info.get("user", {})
+        author_email = author_profile.get("profile", {}).get("email")
+
+    if author_email is None:
+        return {"status": "ok"}
+
+    author_results = search_by_email(Address(addr_spec=author_email))
+
+    if len(author_results["results"]) == 0:
+        return {"status": "ok"}
+
+    blocks = format_search_result_blocks(author_results)
+
+    ephemeral_users = app.config.get("SLACK_EPHEMERAL_USERS", "")
+    if isinstance(ephemeral_users, str):
+        user_ids = [uid.strip() for uid in ephemeral_users.split(",") if uid.strip()]
+    else:
+        user_ids = []
+
+    plain_text = (
+        author_results["results"][0]["givenName"] + " " + author_results["results"][0]["surname"]
+    )
+
+    if author_results["results"][0]["title"] is not None:
+        plain_text += " - " + author_results["results"][0]["title"]
+
+    if author_results["results"][0]["organizationalUnit"] is not None:
+        if author_results["results"][0]["organizationalUnit"] in get_majors():
+            plain_text += " - " + get_majors()[author_results["results"][0]["organizationalUnit"]]
+        else:
+            plain_text += " - " + author_results["results"][0]["organizationalUnit"]
+
+    for user_id in user_ids:
+        slack.chat_postEphemeral(
+            channel=event["channel"],
+            user=user_id,
+            text=plain_text,
+            blocks=blocks,
+        )
+
+    return {"status": "ok"}
+
+
+@app.post("/slack")
+def handle_slack_event() -> Dict[str, str]:
+    """
+    Handle an event from Slack
+    """
+    verifier = SignatureVerifier(app.config["SLACK_SIGNING_SECRET"])
+
+    if not verifier.is_valid_request(request.get_data(), request.headers):  # type: ignore
+        raise Unauthorized("Slack signature verification failed")
+
+    if request.content_type is not None and "application/json" in request.content_type:
+        body = request.get_json()
+        if body is not None and body.get("type") == "url_verification":
+            return {"challenge": body["challenge"]}
+
+    if request.content_type is not None and "application/json" in request.content_type:
+        body = request.get_json()
+        if body is not None and body.get("type") == "event_callback":
+            return handle_event_callback(body)
+
+    payload = loads(request.form.get("payload"))  # type: ignore
+
+    if payload.get("type") == "block_actions":
+        return {"status": "ok"}
+
+    if payload.get("type") != "message_action":
+        raise BadRequest("Unsupported payload type")
+
+    triggering_user_info = slack.users_info(user=payload["user"]["id"])
+
+    triggering_user_email: Union[str, None] = None
+
+    if triggering_user_info.get("ok") is True:
+        triggering_user_profile: Any = triggering_user_info.get("user", {})
+        triggering_user_email = triggering_user_profile.get("profile", {}).get("email")
+
+    if triggering_user_email is None:
+        slack.views_open(
+            trigger_id=payload["trigger_id"],
+            view={
+                "type": "modal",
+                "title": {"type": "plain_text", "text": "Checkpoint"},
+                "blocks": [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": "Could not determine your email address from Slack.",
+                        },
+                    }
+                ],
+            },
+        )
+        return {"status": "ok"}
+
+    triggering_user_results = search_by_email(
+        Address(addr_spec=triggering_user_email), with_gted=False
+    )
+
+    if len(triggering_user_results["results"]) == 0:
+        slack.views_open(
+            trigger_id=payload["trigger_id"],
+            view={
+                "type": "modal",
+                "title": {"type": "plain_text", "text": "Checkpoint"},
+                "blocks": [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": "No Georgia Tech account found for your email address.",
+                        },
+                    }
+                ],
+            },
+        )
+        return {"status": "ok"}
+
+    directory_id = triggering_user_results["results"][0]["directoryId"]
+
+    cursor = db().execute(
+        "SELECT keycloak_user_id FROM crosswalk WHERE gt_person_directory_id = (:directory_id)",
+        {"directory_id": directory_id},
+    )
+    row = cursor.fetchone()
+
+    if row is None or row[0] is None:
+        slack.views_open(
+            trigger_id=payload["trigger_id"],
+            view={
+                "type": "modal",
+                "title": {"type": "plain_text", "text": "Checkpoint"},
+                "blocks": [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": "Could not find your Keycloak account.",
+                        },
+                    }
+                ],
+            },
+        )
+        return {"status": "ok"}
+
+    keycloak_user_id = row[0]
+
+    role_mappings_response = keycloak.get(
+        url=urlunparse(
+            (
+                urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,
+                urlparse(app.config["KEYCLOAK_METADATA_URL"]).hostname,
+                "/admin/realms/"
+                + app.config["KEYCLOAK_REALM"]
+                + "/users/"
+                + keycloak_user_id
+                + "/role-mappings",
+                "",
+                "",
+                "",
+            )
+        ),
+        timeout=(5, 5),
+    )
+    role_mappings_response.raise_for_status()
+
+    if (
+        "clientMappings" in role_mappings_response.json()
+        and role_mappings_response.json()["clientMappings"] is not None
+    ):
+        if (
+            "checkpoint" in role_mappings_response.json()["clientMappings"]
+            and role_mappings_response.json()["clientMappings"]["checkpoint"] is not None
+        ):
+            if (
+                "mappings" in role_mappings_response.json()["clientMappings"]["checkpoint"]
+                and role_mappings_response.json()["clientMappings"]["checkpoint"]["mappings"]
+                is not None
+            ):
+                for mapping in role_mappings_response.json()["clientMappings"]["checkpoint"][
+                    "mappings"
+                ]:
+                    if mapping.get("name") == "access":
+                        has_access = True
+                        break
+
+    if not has_access:
+        slack.views_open(
+            trigger_id=payload["trigger_id"],
+            view={
+                "type": "modal",
+                "title": {"type": "plain_text", "text": "Checkpoint"},
+                "blocks": [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": "You do not have access to Checkpoint.",
+                        },
+                    }
+                ],
+            },
+        )
+        return {"status": "ok"}
+
+    author_user_info = slack.users_info(user=payload["message"]["user"])
+
+    author_email: Union[str, None] = None
+
+    if author_user_info.get("ok") is True:
+        author_profile: Any = author_user_info.get("user", {})
+        author_email = author_profile.get("profile", {}).get("email")
+
+    if author_email is None:
+        slack.views_open(
+            trigger_id=payload["trigger_id"],
+            view={
+                "type": "modal",
+                "title": {"type": "plain_text", "text": "Checkpoint"},
+                "blocks": [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": "Could not determine the message author's email address.",
+                        },
+                    }
+                ],
+            },
+        )
+        return {"status": "ok"}
+
+    author_results = search_by_email(Address(addr_spec=author_email))
+
+    slack.views_open(
+        trigger_id=payload["trigger_id"],
+        view={
+            "type": "modal",
+            "title": {"type": "plain_text", "text": "Checkpoint"},
+            "blocks": format_search_result_blocks(author_results),
+        },
+    )
+
+    return {"status": "ok"}
 
 
 @app.get("/ping")
