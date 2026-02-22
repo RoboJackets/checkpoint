@@ -3465,15 +3465,19 @@ def handle_slack_event() -> Dict[str, str]:
         )
         return {"status": "ok"}
 
-    author_user_info = slack.users_info(user=payload["message"]["user"])
+    mentioned_users = re.findall(r"<@(U[A-Z0-9]+)>", payload["message"].get("text", ""))
 
-    author_email: Union[str, None] = None
+    lookup_user_id = mentioned_users[0] if len(mentioned_users) == 1 else payload["message"]["user"]
 
-    if author_user_info.get("ok") is True:
-        author_profile: Any = author_user_info.get("user", {})
-        author_email = author_profile.get("profile", {}).get("email")
+    lookup_user_info = slack.users_info(user=lookup_user_id)
 
-    if author_email is None:
+    lookup_email: Union[str, None] = None
+
+    if lookup_user_info.get("ok") is True:
+        lookup_profile: Any = lookup_user_info.get("user", {})
+        lookup_email = lookup_profile.get("profile", {}).get("email")
+
+    if lookup_email is None:
         slack.views_open(
             trigger_id=payload["trigger_id"],
             view={
@@ -3484,7 +3488,7 @@ def handle_slack_event() -> Dict[str, str]:
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": "Could not determine the message author's email address.",
+                            "text": "Could not determine the user's email address.",
                         },
                     }
                 ],
@@ -3492,14 +3496,14 @@ def handle_slack_event() -> Dict[str, str]:
         )
         return {"status": "ok"}
 
-    author_results = search_by_email(Address(addr_spec=author_email))
+    lookup_results = search_by_email(Address(addr_spec=lookup_email))
 
     slack.views_open(
         trigger_id=payload["trigger_id"],
         view={
             "type": "modal",
             "title": {"type": "plain_text", "text": "Checkpoint"},
-            "blocks": format_search_result_blocks(author_results),
+            "blocks": format_search_result_blocks(lookup_results),
         },
     )
 
