@@ -3183,7 +3183,7 @@ sumsBillingGroupsProvisioning model =
                                     ++ (if billingGroups.roboJackets then
                                             [ renderAppStatusBadge
                                                 { status =
-                                                    if apiaryUser.isAccessActive && hasRecentSumsAttendance model then
+                                                    if apiaryUser.isAccessActive && hasRecentSumsAttendance model && List.length apiaryUser.teams > 0 then
                                                         Success
 
                                                     else
