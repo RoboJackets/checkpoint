@@ -1181,6 +1181,7 @@ ignoreSecondaryTitle title =
         && not (String.contains "graduate assistant" (String.toLower title))
         && not (String.contains "instructional associate" (String.toLower title))
         && not (String.contains "research technologist" (String.toLower title))
+        && not (String.contains "temp" (String.toLower title))
 
 
 ignoreSecondaryWhitepagesEntry : LdapEntry -> Bool

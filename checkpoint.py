@@ -724,6 +724,7 @@ def format_search_result(
                 and "graduate teaching assistant" not in entry["attributes"]["title"][0].lower()
                 and "research technologist" not in entry["attributes"]["title"][0].lower()
                 and "instructional associate" not in entry["attributes"]["title"][0].lower()
+                and "temp" not in entry["attributes"]["title"][0].lower()
             ):
                 if title is not None:
                     raise InternalServerError(
