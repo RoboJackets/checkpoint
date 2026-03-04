@@ -1858,6 +1858,7 @@ viewPerson model =
                                                 [ td [ class "text-end" ] [ text "Eligibility" ]
                                                 , td []
                                                     [ accessActiveBadge model
+                                                    , anyTeamMembershipBadge model
                                                     , recentEligibleAttendanceBadge model
                                                     ]
                                                 ]
