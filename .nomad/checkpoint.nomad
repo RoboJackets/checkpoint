@@ -3,6 +3,16 @@ variable "image" {
   description = "The image to use for running the service"
 }
 
+variable "registry_username" {
+  type = string
+  description = "The username to authenticate to the container registry"
+}
+
+variable "registry_password" {
+  type = string
+  description = "The password to authenticate to the container registry"
+}
+
 variable "hostname" {
   type = string
   description = "The hostname for this instance of the service"
@@ -86,6 +96,12 @@ job "checkpoint" {
 
       config {
         image = var.image
+
+        auth {
+          username = var.registry_username
+          password = var.registry_password
+          server_address = split("/", var.image)[0]
+        }
 
         network_mode = "host"
 
