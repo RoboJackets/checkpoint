@@ -3194,7 +3194,7 @@ sumsBillingGroupsProvisioning model =
                                                 }
                                             ]
 
-                                        else if apiaryUser.isAccessActive && hasRecentSumsAttendance model then
+                                        else if apiaryUser.isAccessActive && hasRecentSumsAttendance model && List.length apiaryUser.teams > 0 then
                                             [ renderAppStatusBadge { status = Danger, label = "RoboJackets", tooltip = "User isn't in the RoboJackets billing group", link = Nothing } ]
 
                                         else
