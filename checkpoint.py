@@ -2896,6 +2896,14 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
                             + " in Gmail"
                         )
 
+                    elif (
+                        "name" in item["events"][0]
+                        and item["events"][0]["name"] == "risky_sensitive_action_allowed"
+                    ):
+                        event_description = (
+                            "allowed an app access to Google Workspace data"
+                        )
+
                     else:
                         raise InternalServerError(
                             "Unable to determine login event type: " + dumps(item)
