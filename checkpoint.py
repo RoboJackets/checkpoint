@@ -1067,7 +1067,9 @@ def search_by_username(username: str) -> Dict[str, Any]:
                     {
                         "givenName": apiary_response.json()["user"]["first_name"],
                         "sn": apiary_response.json()["user"]["last_name"],
-                        "gtPersonDirectoryId": apiary_response.json()["user"]["gtPersonDirectoryId"],
+                        "gtPersonDirectoryId": apiary_response.json()["user"][
+                            "gtPersonDirectoryId"
+                        ],
                         "eduPersonPrimaryAffiliation": None,  # we actually do have this, but it's not displayed anyway
                         "eduPersonScopedAffiliation": [],
                     },
@@ -1123,7 +1125,9 @@ def search_by_email(email_address: Address, with_gted: bool = True) -> Any:
                         {
                             "givenName": apiary_response.json()["user"]["first_name"],
                             "sn": apiary_response.json()["user"]["last_name"],
-                            "gtPersonDirectoryId": apiary_response.json()["user"]["gtPersonDirectoryId"],
+                            "gtPersonDirectoryId": apiary_response.json()["user"][
+                                "gtPersonDirectoryId"
+                            ],
                             "eduPersonPrimaryAffiliation": None,
                             # we actually do have this, but it's not displayed anyway
                             "eduPersonScopedAffiliation": [],
