@@ -1564,24 +1564,8 @@ def get_apiary_account(directory_id: str, is_frontend_request: bool = True) -> D
         if session["has_access"] is not True:
             raise Forbidden("Access denied")
 
-    cursor = db().execute(
-        "SELECT primary_username FROM crosswalk WHERE gt_person_directory_id = (:directory_id)",
-        {"directory_id": directory_id},
-    )
-    row = cursor.fetchone()
-
-    if row is not None:
-        primary_username = row[0]
-    else:
-        gted_account = get_gted_primary_account(gtPersonDirectoryId=directory_id)
-
-        if gted_account is None:
-            raise NotFound("Provided directory ID was not found in Crosswalk or GTED")
-
-        primary_username = gted_account["gtPrimaryGTAccountUsername"]
-
     apiary_response = apiary.get(
-        url=app.config["APIARY_BASE_URL"] + "/api/v1/users/" + primary_username,
+        url=app.config["APIARY_BASE_URL"] + "/api/v1/users/" + directory_id,
         params={
             "include": "actions,attendance.recorded,attendance.attendable,teams,roles",
         },
@@ -1591,7 +1575,34 @@ def get_apiary_account(directory_id: str, is_frontend_request: bool = True) -> D
         timeout=(5, 5),
     )
     if apiary_response.status_code == 404:
-        return {}
+        cursor = db().execute(
+            "SELECT gtid FROM crosswalk WHERE gt_person_directory_id = (:directory_id)",
+            {"directory_id": directory_id},
+        )
+        row = cursor.fetchone()
+
+        if row is not None:
+            gtid = row[0]
+        else:
+            gted_account = get_gted_primary_account(gtPersonDirectoryId=directory_id)
+
+            if gted_account is None:
+                raise NotFound("Provided directory ID was not found in Crosswalk or GTED")
+
+            gtid = gted_account["gtGTID"]
+
+        apiary_response = apiary.get(
+            url=app.config["APIARY_BASE_URL"] + "/api/v1/users/" + gtid,
+            params={
+                "include": "actions,attendance.recorded,attendance.attendable,teams,roles",
+            },
+            headers={
+                "x-cache-bypass": "bypass",
+            },
+            timeout=(5, 5),
+        )
+        if apiary_response.status_code == 404:
+            return {}
 
     apiary_response.raise_for_status()
 
