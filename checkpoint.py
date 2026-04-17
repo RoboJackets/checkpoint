@@ -1108,7 +1108,7 @@ def search_by_email(email_address: Address, with_gted: bool = True) -> Any:
     """
     # search crosswalk by email
     cursor = db().execute(
-        "SELECT gt_person_directory_id, gtid FROM crosswalk_email_address WHERE email_address = (:email_address)",  # noqa
+        "SELECT gt_person_directory_id FROM crosswalk_email_address WHERE email_address = (:email_address)",  # noqa
         {"email_address": email_address.addr_spec.lower()},
     )
     row = cursor.fetchone()
@@ -1116,7 +1116,7 @@ def search_by_email(email_address: Address, with_gted: bool = True) -> Any:
     if row is not None:
         # found person in crosswalk, return that
         apiary_response = apiary.get(
-            url=app.config["APIARY_BASE_URL"] + "/api/v1/users/" + str(row[1]),
+            url=app.config["APIARY_BASE_URL"] + "/api/v1/users/" + row[0],
             timeout=(5, 5),
         )
         if apiary_response.status_code == 200:
