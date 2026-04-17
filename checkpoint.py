@@ -1056,6 +1056,29 @@ def search_by_username(username: str) -> Dict[str, Any]:
     """
     Search for a person by username
     """
+    apiary_response = apiary.get(
+        url=app.config["APIARY_BASE_URL"] + "/api/v1/users/" + username,
+        timeout=(5, 5),
+    )
+    if apiary_response.status_code == 200:
+        return {
+            "results": [
+                format_search_result(
+                    {
+                        "givenName": apiary_response.json()["user"]["first_name"],
+                        "sn": apiary_response.json()["user"]["last_name"],
+                        "gtPersonDirectoryId": apiary_response.json()["user"]["gtPersonDirectoryId"],
+                        "eduPersonPrimaryAffiliation": None,  # we actually do have this, but it's not displayed anyway
+                        "eduPersonScopedAffiliation": [],
+                    },
+                    search_whitepages(uid=username),
+                ),
+            ],
+            "exactMatch": True,
+        }
+    if apiary_response.status_code != 404:
+        apiary_response.raise_for_status()
+
     gted_account = get_gted_primary_account(uid=username)
 
     if gted_account is None:
@@ -1089,6 +1112,30 @@ def search_by_email(email_address: Address, with_gted: bool = True) -> Any:
 
     if row is not None:
         # found person in crosswalk, return that
+        apiary_response = apiary.get(
+            url=app.config["APIARY_BASE_URL"] + "/api/v1/users/" + row[0],
+            timeout=(5, 5),
+        )
+        if apiary_response.status_code == 200:
+            return {
+                "results": [
+                    format_search_result(
+                        {
+                            "givenName": apiary_response.json()["user"]["first_name"],
+                            "sn": apiary_response.json()["user"]["last_name"],
+                            "gtPersonDirectoryId": apiary_response.json()["user"]["gtPersonDirectoryId"],
+                            "eduPersonPrimaryAffiliation": None,
+                            # we actually do have this, but it's not displayed anyway
+                            "eduPersonScopedAffiliation": [],
+                        },
+                        search_whitepages(uid=apiary_response.json()["user"]["uid"]),
+                    ),
+                ],
+                "exactMatch": True,
+            }
+        if apiary_response.status_code != 404:
+            apiary_response.raise_for_status()
+
         gted_account = get_gted_primary_account(gtPersonDirectoryId=row[0])
 
         if gted_account is None:
