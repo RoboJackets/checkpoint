@@ -1107,7 +1107,7 @@ def search_by_email(email_address: Address, with_gted: bool = True) -> Any:
     """
     # search crosswalk by email
     cursor = db().execute(
-        "SELECT gt_person_directory_id FROM crosswalk_email_address WHERE email_address = (:email_address)",  # noqa
+        "SELECT gt_person_directory_id, gtid FROM crosswalk_email_address WHERE email_address = (:email_address)",  # noqa
         {"email_address": email_address.addr_spec.lower()},
     )
     row = cursor.fetchone()
@@ -1115,7 +1115,7 @@ def search_by_email(email_address: Address, with_gted: bool = True) -> Any:
     if row is not None:
         # found person in crosswalk, return that
         apiary_response = apiary.get(
-            url=app.config["APIARY_BASE_URL"] + "/api/v1/users/" + row[0],
+            url=app.config["APIARY_BASE_URL"] + "/api/v1/users/" + str(row[1]),
             timeout=(5, 5),
         )
         if apiary_response.status_code == 200:
@@ -1592,7 +1592,7 @@ def get_apiary_account(directory_id: str, is_frontend_request: bool = True) -> D
             gtid = gted_account["gtGTID"]
 
         apiary_response = apiary.get(
-            url=app.config["APIARY_BASE_URL"] + "/api/v1/users/" + gtid,
+            url=app.config["APIARY_BASE_URL"] + "/api/v1/users/" + str(gtid),
             params={
                 "include": "actions,attendance.recorded,attendance.attendable,teams,roles",
             },
@@ -1791,23 +1791,23 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
 
     if primary_username is None:
         cursor = db().execute(
-            "SELECT primary_username FROM crosswalk WHERE gt_person_directory_id = (:directory_id)",
+            "SELECT gtid FROM crosswalk WHERE gt_person_directory_id = (:directory_id)",
             {"directory_id": directory_id},
         )
         row = cursor.fetchone()
 
         if row is not None:
-            primary_username = row[0]
+            gtid = row[0]
         else:
             gted_account = get_gted_primary_account(gtPersonDirectoryId=directory_id)
 
             if gted_account is None:
                 raise NotFound("Provided directory ID was not found in Crosswalk or GTED")
 
-            primary_username = gted_account["gtPrimaryGTAccountUsername"]
+            gtid = gted_account["gtGTID"]
 
     apiary_response = apiary.get(
-        url=app.config["APIARY_BASE_URL"] + "/api/v1/users/" + primary_username,
+        url=app.config["APIARY_BASE_URL"] + "/api/v1/users/" + gtid,
         params={
             "include": "actions,attendance.recorded,attendance.attendable",
         },
