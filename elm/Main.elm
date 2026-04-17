@@ -715,11 +715,22 @@ stringFromBool value =
         "false"
 
 
+ldapAttributeValueDecoder : Decoder String
+ldapAttributeValueDecoder =
+    Json.Decode.oneOf
+        [ Json.Decode.string
+        , Json.Decode.int |> Json.Decode.map String.fromInt
+        , Json.Decode.bool |> Json.Decode.map stringFromBool
+        , Json.Decode.field "encoded" Json.Decode.string
+        , Json.Decode.value |> Json.Decode.map (Json.Encode.encode 0)
+        ]
+
+
 ldapEntryDecoder : Decoder LdapEntry
 ldapEntryDecoder =
     Json.Decode.map2 LdapEntry
         (at [ "dn" ] Json.Decode.string)
-        (at [ "attributes" ] (Json.Decode.dict (Json.Decode.list (Json.Decode.oneOf [ Json.Decode.string, Json.Decode.int |> Json.Decode.map String.fromInt, Json.Decode.bool |> Json.Decode.map stringFromBool ]))))
+        (at [ "attributes" ] (Json.Decode.dict (Json.Decode.list ldapAttributeValueDecoder)))
 
 
 keycloakResponseDecoder : Decoder (Maybe KeycloakAccount)
