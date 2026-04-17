@@ -1070,7 +1070,7 @@ def search_by_username(username: str) -> Dict[str, Any]:
                         "gtPersonDirectoryId": apiary_response.json()["user"][
                             "gtPersonDirectoryId"
                         ],
-                        "eduPersonPrimaryAffiliation": None,  # we actually do have this, but it's not displayed anyway
+                        "eduPersonPrimaryAffiliation": None,
                         "eduPersonScopedAffiliation": [],
                     },
                     search_whitepages(uid=username),
@@ -1129,7 +1129,6 @@ def search_by_email(email_address: Address, with_gted: bool = True) -> Any:
                                 "gtPersonDirectoryId"
                             ],
                             "eduPersonPrimaryAffiliation": None,
-                            # we actually do have this, but it's not displayed anyway
                             "eduPersonScopedAffiliation": [],
                         },
                         search_whitepages(uid=apiary_response.json()["user"]["uid"]),
