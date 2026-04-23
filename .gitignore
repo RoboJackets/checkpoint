@@ -210,9 +210,13 @@ __marimo__/
 /static/app.js
 /js/elm.js
 /node_modules/
+/*.js
 
 # Elm stuff
 /elm-stuff/
 
 # Databases
 *.sqlite
+
+# Sample data
+*.json
