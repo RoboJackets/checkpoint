@@ -514,7 +514,9 @@ def get_actor(**kwargs: str) -> Dict[str, Union[str, None]]:
             }
 
     if "email" in kwargs:
-        email_results = search_by_email(Address(addr_spec=kwargs["email"]), with_gted=False)
+        email_results = search_by_email(
+            Address(addr_spec=kwargs["email"]), with_gted=False, with_whitepages=False
+        )
 
         if len(email_results["results"]) > 0:
             return {
@@ -1053,7 +1055,7 @@ def login() -> Any:
 
 
 @cache.memoize()
-def search_by_username(username: str) -> Dict[str, Any]:
+def search_by_username(username: str, with_whitepages: bool = True) -> Dict[str, Any]:
     """
     Search for a person by username
     """
@@ -1074,7 +1076,7 @@ def search_by_username(username: str) -> Dict[str, Any]:
                         "eduPersonPrimaryAffiliation": None,
                         "eduPersonScopedAffiliation": [],
                     },
-                    search_whitepages(uid=username),
+                    search_whitepages(uid=username) if with_whitepages else [],
                 ),
             ],
             "exactMatch": True,
@@ -1094,7 +1096,11 @@ def search_by_username(username: str) -> Dict[str, Any]:
         "results": [
             format_search_result(
                 gted_account,
-                search_whitepages(uid=gted_account["gtPrimaryGTAccountUsername"]),
+                (
+                    search_whitepages(uid=gted_account["gtPrimaryGTAccountUsername"])
+                    if with_whitepages
+                    else []
+                ),
             ),
         ],
         "exactMatch": True,
@@ -1102,7 +1108,9 @@ def search_by_username(username: str) -> Dict[str, Any]:
 
 
 @cache.memoize()
-def search_by_email(email_address: Address, with_gted: bool = True) -> Any:
+def search_by_email(
+    email_address: Address, with_gted: bool = True, with_whitepages: bool = True
+) -> Any:
     """
     Search for a person by email address
     """
@@ -1132,7 +1140,11 @@ def search_by_email(email_address: Address, with_gted: bool = True) -> Any:
                             "eduPersonPrimaryAffiliation": None,
                             "eduPersonScopedAffiliation": [],
                         },
-                        search_whitepages(uid=apiary_response.json()["user"]["uid"]),
+                        (
+                            search_whitepages(uid=apiary_response.json()["user"]["uid"])
+                            if with_whitepages
+                            else []
+                        ),
                     ),
                 ],
                 "exactMatch": True,
@@ -1149,7 +1161,11 @@ def search_by_email(email_address: Address, with_gted: bool = True) -> Any:
             "results": [
                 format_search_result(
                     gted_account,
-                    search_whitepages(uid=gted_account["gtPrimaryGTAccountUsername"]),
+                    (
+                        search_whitepages(uid=gted_account["gtPrimaryGTAccountUsername"])
+                        if with_whitepages
+                        else []
+                    ),
                 ),
             ],
             "exactMatch": True,
@@ -1172,7 +1188,9 @@ def search_by_email(email_address: Address, with_gted: bool = True) -> Any:
             fullmatch(GEORGIA_TECH_USERNAME_REGEX, email_address.username, IGNORECASE) is not None
             and email_address.domain == "gatech.edu"
         ):
-            username_results = search_by_username(email_address.username)
+            username_results = search_by_username(
+                email_address.username, with_whitepages=with_whitepages
+            )
 
             if len(username_results["results"]) > 0:
                 return username_results
@@ -1193,26 +1211,28 @@ def search_by_email(email_address: Address, with_gted: bool = True) -> Any:
             and "uid" in apiary_result.json()["user"]
             and apiary_result.json()["user"]["uid"] is not None
         ):
-            return search_by_username(apiary_result.json()["user"]["uid"])
+            return search_by_username(
+                apiary_result.json()["user"]["uid"], with_whitepages=with_whitepages
+            )
 
     keycloak_results = search_keycloak(email=email_address.addr_spec, exact=True)
 
     if len(keycloak_results) > 0:
-        return search_by_username(keycloak_results[0]["username"])
+        return search_by_username(keycloak_results[0]["username"], with_whitepages=with_whitepages)
 
     keycloak_results = search_keycloak(
         q=build_keycloak_filter(googleWorkspaceAccount=email_address.addr_spec)
     )
 
     if len(keycloak_results) > 0:
-        return search_by_username(keycloak_results[0]["username"])
+        return search_by_username(keycloak_results[0]["username"], with_whitepages=with_whitepages)
 
     keycloak_results = search_keycloak(
         q=build_keycloak_filter(rampLoginEmailAddress=email_address.addr_spec)
     )
 
     if len(keycloak_results) > 0:
-        return search_by_username(keycloak_results[0]["username"])
+        return search_by_username(keycloak_results[0]["username"], with_whitepages=with_whitepages)
 
     if with_gted:
         gted_account = get_gted_primary_account(
@@ -1224,7 +1244,11 @@ def search_by_email(email_address: Address, with_gted: bool = True) -> Any:
                 "results": [
                     format_search_result(
                         gted_account,
-                        search_whitepages(uid=gted_account["gtPrimaryGTAccountUsername"]),
+                        (
+                            search_whitepages(uid=gted_account["gtPrimaryGTAccountUsername"])
+                            if with_whitepages
+                            else []
+                        ),
                     ),
                 ],
                 "exactMatch": True,
@@ -1239,7 +1263,11 @@ def search_by_email(email_address: Address, with_gted: bool = True) -> Any:
                 "results": [
                     format_search_result(
                         gted_account,
-                        search_whitepages(uid=gted_account["gtPrimaryGTAccountUsername"]),
+                        (
+                            search_whitepages(uid=gted_account["gtPrimaryGTAccountUsername"])
+                            if with_whitepages
+                            else []
+                        ),
                     ),
                 ],
                 "exactMatch": True,
@@ -1265,11 +1293,11 @@ def search() -> (
 
     try:  # pylint: disable=too-many-nested-blocks
         # check if the query is formatted like an email address
-        return search_by_email(Address(addr_spec=query))
+        return search_by_email(Address(addr_spec=query), with_whitepages=False)
     except InvalidHeaderDefect:
         # check if the query is formatted like a GT username
         if fullmatch(GEORGIA_TECH_USERNAME_REGEX, query, IGNORECASE) is not None:
-            return search_by_username(query)
+            return search_by_username(query, with_whitepages=False)
 
         # check if the query is formatted like a first and last name
         split_name = query.split(" ")
@@ -3469,7 +3497,7 @@ def handle_slack_event() -> Dict[str, str]:
         return {"status": "ok"}
 
     triggering_user_results = search_by_email(
-        Address(addr_spec=triggering_user_email), with_gted=False
+        Address(addr_spec=triggering_user_email), with_gted=False, with_whitepages=False
     )
 
     if len(triggering_user_results["results"]) == 0:
