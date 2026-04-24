@@ -382,6 +382,38 @@ def search_whitepages(**kwargs: str) -> List[Dict[str, Dict[str, List[str]]]]:
     return records
 
 
+@cache.memoize()
+def search_gtad(uid: str) -> Union[Dict[str, List[str]], None]:
+    """
+    Look up an account in GTAD by uid and return its title/department attributes
+    """
+    with sentry_sdk.start_span(op="gtad.connect"):
+        ldap = Connection(
+            Server("campusad.ad.gatech.edu", connect_timeout=1),
+            user=app.config["GTAD_BIND_DN"],
+            password=app.config["GTAD_BIND_PASSWORD"],
+            auto_bind=True,
+            raise_exceptions=True,
+            receive_timeout=1,
+        )
+
+    with sentry_sdk.start_span(op="gtad.search"):
+        result = ldap.search(
+            search_base="dc=ad,dc=gatech,dc=edu",
+            search_filter="(uid=" + uid + ")",
+            attributes=["title", "department"],
+        )
+
+        if result is True:
+            for entry in ldap.entries:
+                attributes: Dict[str, List[str]] = loads(entry.entry_to_json()).get(
+                    "attributes", {}
+                )
+                return attributes
+
+    return None
+
+
 @cache.cached(key_prefix="realms")
 def get_realms() -> List[Dict[str, Any]]:
     """
@@ -515,7 +547,7 @@ def get_actor(**kwargs: str) -> Dict[str, Union[str, None]]:
 
     if "email" in kwargs:
         email_results = search_by_email(
-            Address(addr_spec=kwargs["email"]), with_gted=False, with_whitepages=False
+            Address(addr_spec=kwargs["email"]), with_gted=False, with_title_and_organization=False
         )
 
         if len(email_results["results"]) > 0:
@@ -699,7 +731,9 @@ def clean_affiliations(affiliations: List[str]) -> List[str]:
 
 
 def format_search_result(
-    gted_account: Dict[str, Any], whitepages_entries: List[Dict[str, Dict[str, List[str]]]]
+    gted_account: Dict[str, Any],
+    whitepages_entries: List[Dict[str, Dict[str, List[str]]]],
+    gtad_account: Union[Dict[str, List[str]], None] = None,
 ) -> Dict[str, Union[Any, None]]:
     """
     Format a search result for the UI
@@ -739,6 +773,18 @@ def format_search_result(
 
                 organizational_unit = get_attribute_value("ou", entry)
 
+    title_is_authoritative = title is not None
+
+    if title is None and gtad_account is not None:
+        gtad_title = gtad_account.get("title")
+        if gtad_title is not None and len(gtad_title) > 0:
+            title = gtad_title[0]
+
+    if organizational_unit is None and gtad_account is not None:
+        gtad_department = gtad_account.get("department")
+        if gtad_department is not None and len(gtad_department) > 0:
+            organizational_unit = gtad_department[0]
+
     if (
         organizational_unit is None
         and "gtCurriculum" in gted_account
@@ -762,6 +808,7 @@ def format_search_result(
         ),
         "affiliations": clean_affiliations(gted_account["eduPersonScopedAffiliation"]),
         "title": title,
+        "titleIsAuthoritative": title_is_authoritative,
         "organizationalUnit": organizational_unit,
     }
 
@@ -1054,8 +1101,8 @@ def login() -> Any:
     return redirect(session["next"])
 
 
-@cache.memoize(args_to_ignore=["with_whitepages"])
-def search_by_username(username: str, with_whitepages: bool = True) -> Dict[str, Any]:
+@cache.memoize(args_to_ignore=["with_title_and_organization"])
+def search_by_username(username: str, with_title_and_organization: bool = True) -> Dict[str, Any]:
     """
     Search for a person by username
     """
@@ -1076,7 +1123,8 @@ def search_by_username(username: str, with_whitepages: bool = True) -> Dict[str,
                         "eduPersonPrimaryAffiliation": None,
                         "eduPersonScopedAffiliation": [],
                     },
-                    search_whitepages(uid=username) if with_whitepages else [],
+                    search_whitepages(uid=username) if with_title_and_organization else [],
+                    search_gtad(uid=username) if with_title_and_organization else None,
                 ),
             ],
             "exactMatch": True,
@@ -1098,8 +1146,13 @@ def search_by_username(username: str, with_whitepages: bool = True) -> Dict[str,
                 gted_account,
                 (
                     search_whitepages(uid=gted_account["gtPrimaryGTAccountUsername"])
-                    if with_whitepages
+                    if with_title_and_organization
                     else []
+                ),
+                (
+                    search_gtad(uid=gted_account["gtPrimaryGTAccountUsername"])
+                    if with_title_and_organization
+                    else None
                 ),
             ),
         ],
@@ -1114,9 +1167,12 @@ def only_cache_if_result_present(result: Dict[str, Any]) -> bool:
     return len(result["results"]) > 0
 
 
-@cache.memoize(args_to_ignore=["with_whitepages", "with_gted"], response_filter=only_cache_if_result_present)
+@cache.memoize(
+    args_to_ignore=["with_title_and_organization", "with_gted"],
+    response_filter=only_cache_if_result_present,
+)
 def search_by_email(
-    email_address: Address, with_gted: bool = True, with_whitepages: bool = True
+    email_address: Address, with_gted: bool = True, with_title_and_organization: bool = True
 ) -> Any:
     """
     Search for a person by email address
@@ -1149,8 +1205,13 @@ def search_by_email(
                         },
                         (
                             search_whitepages(uid=apiary_response.json()["user"]["uid"])
-                            if with_whitepages
+                            if with_title_and_organization
                             else []
+                        ),
+                        (
+                            search_gtad(uid=apiary_response.json()["user"]["uid"])
+                            if with_title_and_organization
+                            else None
                         ),
                     ),
                 ],
@@ -1170,8 +1231,13 @@ def search_by_email(
                     gted_account,
                     (
                         search_whitepages(uid=gted_account["gtPrimaryGTAccountUsername"])
-                        if with_whitepages
+                        if with_title_and_organization
                         else []
+                    ),
+                    (
+                        search_gtad(uid=gted_account["gtPrimaryGTAccountUsername"])
+                        if with_title_and_organization
+                        else None
                     ),
                 ),
             ],
@@ -1196,7 +1262,7 @@ def search_by_email(
             and email_address.domain == "gatech.edu"
         ):
             username_results = search_by_username(
-                email_address.username, with_whitepages=with_whitepages
+                email_address.username, with_title_and_organization=with_title_and_organization
             )
 
             if len(username_results["results"]) > 0:
@@ -1219,27 +1285,34 @@ def search_by_email(
             and apiary_result.json()["user"]["uid"] is not None
         ):
             return search_by_username(
-                apiary_result.json()["user"]["uid"], with_whitepages=with_whitepages
+                apiary_result.json()["user"]["uid"],
+                with_title_and_organization=with_title_and_organization,
             )
 
     keycloak_results = search_keycloak(email=email_address.addr_spec, exact=True)
 
     if len(keycloak_results) > 0:
-        return search_by_username(keycloak_results[0]["username"], with_whitepages=with_whitepages)
+        return search_by_username(
+            keycloak_results[0]["username"], with_title_and_organization=with_title_and_organization
+        )
 
     keycloak_results = search_keycloak(
         q=build_keycloak_filter(googleWorkspaceAccount=email_address.addr_spec)
     )
 
     if len(keycloak_results) > 0:
-        return search_by_username(keycloak_results[0]["username"], with_whitepages=with_whitepages)
+        return search_by_username(
+            keycloak_results[0]["username"], with_title_and_organization=with_title_and_organization
+        )
 
     keycloak_results = search_keycloak(
         q=build_keycloak_filter(rampLoginEmailAddress=email_address.addr_spec)
     )
 
     if len(keycloak_results) > 0:
-        return search_by_username(keycloak_results[0]["username"], with_whitepages=with_whitepages)
+        return search_by_username(
+            keycloak_results[0]["username"], with_title_and_organization=with_title_and_organization
+        )
 
     if with_gted:
         gted_account = get_gted_primary_account(
@@ -1253,8 +1326,13 @@ def search_by_email(
                         gted_account,
                         (
                             search_whitepages(uid=gted_account["gtPrimaryGTAccountUsername"])
-                            if with_whitepages
+                            if with_title_and_organization
                             else []
+                        ),
+                        (
+                            search_gtad(uid=gted_account["gtPrimaryGTAccountUsername"])
+                            if with_title_and_organization
+                            else None
                         ),
                     ),
                 ],
@@ -1272,8 +1350,13 @@ def search_by_email(
                         gted_account,
                         (
                             search_whitepages(uid=gted_account["gtPrimaryGTAccountUsername"])
-                            if with_whitepages
+                            if with_title_and_organization
                             else []
+                        ),
+                        (
+                            search_gtad(uid=gted_account["gtPrimaryGTAccountUsername"])
+                            if with_title_and_organization
+                            else None
                         ),
                     ),
                 ],
@@ -1300,11 +1383,11 @@ def search() -> (
 
     try:  # pylint: disable=too-many-nested-blocks
         # check if the query is formatted like an email address
-        return search_by_email(Address(addr_spec=query), with_whitepages=False)
+        return search_by_email(Address(addr_spec=query), with_title_and_organization=False)
     except InvalidHeaderDefect:
         # check if the query is formatted like a GT username
         if fullmatch(GEORGIA_TECH_USERNAME_REGEX, query, IGNORECASE) is not None:
-            return search_by_username(query, with_whitepages=False)
+            return search_by_username(query, with_title_and_organization=False)
 
         # check if the query is formatted like a first and last name
         split_name = query.split(" ")
@@ -1339,7 +1422,9 @@ def search() -> (
                         "Account found in Whitepages but not GTED"
                     )
 
-                formatted_results.append(format_search_result(gted_account, entries))
+                formatted_results.append(
+                    format_search_result(gted_account, entries, search_gtad(uid=uid))
+                )
 
             if len(formatted_results) > 0:
                 return {
@@ -1355,6 +1440,7 @@ def search() -> (
                 format_search_result(
                     get_gted_primary_account(uid=account["username"]),  # type: ignore
                     search_whitepages(uid=account["username"]),
+                    search_gtad(uid=account["username"]),
                 )
             )
 
@@ -1378,6 +1464,7 @@ def search() -> (
                 format_search_result(
                     get_gted_primary_account(uid=account["uid"]),  # type: ignore
                     search_whitepages(uid=account["uid"]),
+                    search_gtad(uid=account["uid"]),
                 )
             )
 
@@ -3504,7 +3591,7 @@ def handle_slack_event() -> Dict[str, str]:
         return {"status": "ok"}
 
     triggering_user_results = search_by_email(
-        Address(addr_spec=triggering_user_email), with_gted=False, with_whitepages=False
+        Address(addr_spec=triggering_user_email), with_gted=False, with_title_and_organization=False
     )
 
     if len(triggering_user_results["results"]) == 0:

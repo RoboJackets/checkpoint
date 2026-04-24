@@ -94,6 +94,7 @@ type alias SearchResult =
     , givenName : String
     , surname : String
     , title : Maybe String
+    , titleIsAuthoritative : Bool
     , organizationalUnit : Maybe String
     , primaryAffiliation : Maybe String
     , affiliations : List String
@@ -382,7 +383,7 @@ update msg model =
                     case result of
                         Ok searchResults ->
                             if searchResults.exactMatch && List.length searchResults.results == 1 then
-                                Just { directoryId = (Maybe.withDefault { directoryId = "", givenName = "", surname = "", title = Nothing, organizationalUnit = Nothing, primaryAffiliation = Nothing, affiliations = [] } (List.head searchResults.results)).directoryId, whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, grouperMemberships = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing, gtadAccount = Nothing, sumsBillingGroups = Nothing }
+                                Just { directoryId = (Maybe.withDefault { directoryId = "", givenName = "", surname = "", title = Nothing, titleIsAuthoritative = True, organizationalUnit = Nothing, primaryAffiliation = Nothing, affiliations = [] } (List.head searchResults.results)).directoryId, whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, grouperMemberships = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing, gtadAccount = Nothing, sumsBillingGroups = Nothing }
 
                             else
                                 Nothing
@@ -393,7 +394,7 @@ update msg model =
             , case result of
                 Ok searchResults ->
                     if searchResults.exactMatch && List.length searchResults.results == 1 then
-                        Nav.pushUrl model.navKey (urlUnparser (ViewPerson (Maybe.withDefault { directoryId = "", givenName = "", surname = "", title = Nothing, organizationalUnit = Nothing, primaryAffiliation = Nothing, affiliations = [] } (List.head searchResults.results)).directoryId))
+                        Nav.pushUrl model.navKey (urlUnparser (ViewPerson (Maybe.withDefault { directoryId = "", givenName = "", surname = "", title = Nothing, titleIsAuthoritative = True, organizationalUnit = Nothing, primaryAffiliation = Nothing, affiliations = [] } (List.head searchResults.results)).directoryId))
 
                     else
                         Nav.pushUrl model.navKey (urlUnparser (ViewSearchResults (Just (String.trim model.searchQuery))))
@@ -691,11 +692,12 @@ searchResultsResponseDecoder =
 
 searchResultDecoder : Decoder SearchResult
 searchResultDecoder =
-    Json.Decode.map7 SearchResult
+    Json.Decode.map8 SearchResult
         (at [ "directoryId" ] Json.Decode.string)
         (at [ "givenName" ] Json.Decode.string)
         (at [ "surname" ] Json.Decode.string)
         (maybe (at [ "title" ] Json.Decode.string))
+        (at [ "titleIsAuthoritative" ] Json.Decode.bool)
         (maybe (at [ "organizationalUnit" ] Json.Decode.string))
         (maybe (at [ "primaryAffiliation" ] Json.Decode.string))
         (at [ "affiliations" ] (Json.Decode.list string))
@@ -951,9 +953,26 @@ removePrimaryAffiliation primaryAffiliation thisAffiliation =
 
 searchResultToHtml : Dict String (Maybe String) -> SearchResult -> Html msg
 searchResultToHtml majors result =
+    let
+        titleNode : Html msg
+        titleNode =
+            case result.title of
+                Just t ->
+                    if result.titleIsAuthoritative then
+                        text t
+
+                    else
+                        span [ class "text-secondary" ] [ text t ]
+
+                Nothing ->
+                    text ""
+    in
     div [ class "mb-4" ]
         ([ h4 [ class "mb-1" ] [ a [ href (urlUnparser (ViewPerson result.directoryId)) ] [ text (result.givenName ++ " " ++ result.surname) ] ]
-         , div [ class "mb-1" ] [ text (Maybe.withDefault "" result.title ++ " • " ++ Maybe.withDefault "" (Maybe.map (lookupOrganizationalUnit majors) result.organizationalUnit)) ]
+         , div [ class "mb-1" ]
+            [ titleNode
+            , text (" • " ++ Maybe.withDefault "" (Maybe.map (lookupOrganizationalUnit majors) result.organizationalUnit))
+            ]
          , span [ class "badge", class "rounded-pill", class "text-bg-primary", class "me-1" ] [ text (Maybe.withDefault "" result.primaryAffiliation) ]
          ]
             ++ List.map affiliationToBadge (List.filter (removePrimaryAffiliation result.primaryAffiliation) result.affiliations)
