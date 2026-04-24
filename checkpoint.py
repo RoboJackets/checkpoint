@@ -1054,7 +1054,7 @@ def login() -> Any:
     return redirect(session["next"])
 
 
-@cache.memoize()
+@cache.memoize(args_to_ignore=["with_whitepages"])
 def search_by_username(username: str, with_whitepages: bool = True) -> Dict[str, Any]:
     """
     Search for a person by username
@@ -1106,8 +1106,14 @@ def search_by_username(username: str, with_whitepages: bool = True) -> Dict[str,
         "exactMatch": True,
     }
 
+def only_cache_if_result_present(result: Dict[str, Any]) -> bool:
+    """
+    Only cache if the result is present
+    """
+    return len(result["results"]) > 0
 
-@cache.memoize()
+
+@cache.memoize(args_to_ignore=["with_whitepages", "with_gted"], response_filter=only_cache_if_result_present)
 def search_by_email(
     email_address: Address, with_gted: bool = True, with_whitepages: bool = True
 ) -> Any:
