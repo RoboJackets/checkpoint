@@ -1106,6 +1106,7 @@ def search_by_username(username: str, with_whitepages: bool = True) -> Dict[str,
         "exactMatch": True,
     }
 
+
 def only_cache_if_result_present(result: Dict[str, Any]) -> bool:
     """
     Only cache if the result is present
