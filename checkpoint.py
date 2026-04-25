@@ -37,7 +37,6 @@ from ldap3 import (
     Server,
 )
 from ldap3.operation.search import search_operation
-from ldap3.utils.log import EXTENDED, set_library_log_detail_level
 
 from requests import get, post
 
@@ -134,8 +133,6 @@ cache = Cache(app)
 cache.clear()
 
 slack = WebClient(token=app.config["SLACK_BOT_TOKEN"])
-
-set_library_log_detail_level(EXTENDED)
 
 
 def generate_subresource_integrity_hash(file: str) -> str:
