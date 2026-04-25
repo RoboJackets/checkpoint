@@ -1224,66 +1224,105 @@ ignoreSecondaryWhitepagesEntry entry =
             True
 
 
-getSelectedPersonTitle : Model -> Maybe String
-getSelectedPersonTitle model =
+orElseLazy : (() -> Maybe a) -> Maybe a -> Maybe a
+orElseLazy fallback maybeValue =
+    case maybeValue of
+        Just _ ->
+            maybeValue
+
+        Nothing ->
+            fallback ()
+
+
+matchedSearchResult : Model -> Maybe SearchResult
+matchedSearchResult model =
+    case ( model.selectedUser, model.searchResults ) of
+        ( Just selectedUser, Just (Ok searchResults) ) ->
+            List.head (List.filter (filterMatchingDirectoryId selectedUser.directoryId) searchResults.results)
+
+        _ ->
+            Nothing
+
+
+primaryWhitepagesAttribute : String -> Model -> Maybe String
+primaryWhitepagesAttribute attributeName model =
     case model.selectedUser of
         Just selectedUser ->
-            case model.searchResults of
-                Just result ->
-                    case result of
-                        Ok searchResults ->
-                            case List.head (List.filter (filterMatchingDirectoryId selectedUser.directoryId) searchResults.results) of
-                                Just matchedResult ->
-                                    matchedResult.title
+            case selectedUser.whitepagesEntries of
+                Just (Ok entries) ->
+                    let
+                        chosenEntry : Maybe LdapEntry
+                        chosenEntry =
+                            if List.length entries == 1 then
+                                List.head entries
+
+                            else
+                                List.head (List.filter ignoreSecondaryWhitepagesEntry entries)
+                    in
+                    case chosenEntry of
+                        Just entry ->
+                            case Dict.get attributeName entry.attributes of
+                                Just attributeList ->
+                                    List.head attributeList
 
                                 Nothing ->
-                                    Nothing
-
-                        Err _ ->
-                            Nothing
-
-                Nothing ->
-                    case selectedUser.whitepagesEntries of
-                        Just result ->
-                            case result of
-                                Ok entries ->
-                                    if List.isEmpty entries then
-                                        Nothing
-
-                                    else if List.length entries == 1 then
-                                        case List.head entries of
-                                            Just entry ->
-                                                case Dict.get "title" entry.attributes of
-                                                    Just attributeList ->
-                                                        List.head attributeList
-
-                                                    Nothing ->
-                                                        Nothing
-
-                                            Nothing ->
-                                                Nothing
-
-                                    else
-                                        case List.head (List.filter ignoreSecondaryWhitepagesEntry entries) of
-                                            Just primaryEntry ->
-                                                case Dict.get "title" primaryEntry.attributes of
-                                                    Just attributeList ->
-                                                        List.head attributeList
-
-                                                    Nothing ->
-                                                        Nothing
-
-                                            Nothing ->
-                                                Nothing
-
-                                Err _ ->
                                     Nothing
 
                         Nothing ->
                             Nothing
 
+                _ ->
+                    Nothing
+
         Nothing ->
             Nothing
+
+
+gtadAttribute : String -> Model -> Maybe String
+gtadAttribute attributeName model =
+    case model.selectedUser of
+        Just selectedUser ->
+            case selectedUser.gtadAccount of
+                Just (Ok entry) ->
+                    case Dict.get attributeName entry.attributes of
+                        Just attributeList ->
+                            List.head attributeList
+
+                        Nothing ->
+                            Nothing
+
+                _ ->
+                    Nothing
+
+        Nothing ->
+            Nothing
+
+
+getSelectedPersonTitle : Model -> Maybe String
+getSelectedPersonTitle model =
+    (matchedSearchResult model |> Maybe.andThen .title)
+        |> orElseLazy (\_ -> primaryWhitepagesAttribute "title" model)
+        |> orElseLazy (\_ -> gtadAttribute "title" model)
+
+
+getSelectedPersonTitleIsAuthoritative : Model -> Bool
+getSelectedPersonTitleIsAuthoritative model =
+    case matchedSearchResult model |> Maybe.andThen (\result -> Maybe.map (\_ -> result.titleIsAuthoritative) result.title) of
+        Just isAuthoritative ->
+            isAuthoritative
+
+        Nothing ->
+            case primaryWhitepagesAttribute "title" model of
+                Just _ ->
+                    True
+
+                Nothing ->
+                    case gtadAttribute "title" model of
+                        Just _ ->
+                            False
+
+                        Nothing ->
+                            True
 
 
 filterSimpleGtCurriculum : String -> Bool
@@ -1301,84 +1340,40 @@ lookupOrganizationalUnit majors ou =
             ou
 
 
+ouFromGtedCurriculum : Model -> Maybe String
+ouFromGtedCurriculum model =
+    case model.selectedUser of
+        Just selectedUser ->
+            case selectedUser.gtedAccounts of
+                Just (Ok accounts) ->
+                    case List.head accounts of
+                        Just account ->
+                            case List.head (List.filter filterSimpleGtCurriculum account.gtCurriculum) of
+                                Just curriculum ->
+                                    List.head (List.reverse (String.split "/" curriculum))
+
+                                Nothing ->
+                                    Nothing
+
+                        Nothing ->
+                            Nothing
+
+                _ ->
+                    Nothing
+
+        Nothing ->
+            Nothing
+
+
 getSelectedPersonOrganizationalUnit : Model -> Maybe String
 getSelectedPersonOrganizationalUnit model =
     let
         rawOrganizationalUnit : Maybe String
         rawOrganizationalUnit =
-            case model.selectedUser of
-                Just selectedUser ->
-                    case model.searchResults of
-                        Just result ->
-                            case result of
-                                Ok searchResults ->
-                                    case List.head (List.filter (filterMatchingDirectoryId selectedUser.directoryId) searchResults.results) of
-                                        Just matchedResult ->
-                                            matchedResult.organizationalUnit
-
-                                        Nothing ->
-                                            Nothing
-
-                                Err _ ->
-                                    Nothing
-
-                        Nothing ->
-                            case selectedUser.whitepagesEntries of
-                                Just result ->
-                                    case result of
-                                        Ok entries ->
-                                            if List.isEmpty entries then
-                                                case selectedUser.gtedAccounts of
-                                                    Just gtedResult ->
-                                                        case gtedResult of
-                                                            Ok accounts ->
-                                                                case List.head (List.filter filterSimpleGtCurriculum (Maybe.withDefault { eduPersonPrimaryAffiliation = "", eduPersonScopedAffiliation = [], givenName = "", gtAccountEntitlement = [], gtCurriculum = [], gtEmployeeHomeDepartmentName = Nothing, gtGTID = "", gtPersonDirectoryId = "", gtPrimaryGTAccountUsername = "", sn = "", uid = "" } (List.head accounts)).gtCurriculum) of
-                                                                    Just curriculum ->
-                                                                        List.head (List.reverse (String.split "/" curriculum))
-
-                                                                    Nothing ->
-                                                                        Nothing
-
-                                                            Err _ ->
-                                                                Nothing
-
-                                                    Nothing ->
-                                                        Nothing
-
-                                            else if List.length entries == 1 then
-                                                case List.head entries of
-                                                    Just entry ->
-                                                        case Dict.get "ou" entry.attributes of
-                                                            Just attributeList ->
-                                                                List.head attributeList
-
-                                                            Nothing ->
-                                                                Nothing
-
-                                                    Nothing ->
-                                                        Nothing
-
-                                            else
-                                                case List.head (List.filter ignoreSecondaryWhitepagesEntry entries) of
-                                                    Just primaryEntry ->
-                                                        case Dict.get "ou" primaryEntry.attributes of
-                                                            Just attributeList ->
-                                                                List.head attributeList
-
-                                                            Nothing ->
-                                                                Nothing
-
-                                                    Nothing ->
-                                                        Nothing
-
-                                        Err _ ->
-                                            Nothing
-
-                                Nothing ->
-                                    Nothing
-
-                Nothing ->
-                    Nothing
+            (matchedSearchResult model |> Maybe.andThen .organizationalUnit)
+                |> orElseLazy (\_ -> primaryWhitepagesAttribute "ou" model)
+                |> orElseLazy (\_ -> gtadAttribute "department" model)
+                |> orElseLazy (\_ -> ouFromGtedCurriculum model)
     in
     Maybe.map (lookupOrganizationalUnit model.majors) rawOrganizationalUnit
 
@@ -1485,60 +1480,6 @@ gtedAccountToPrimaryAffiliationPill account =
 
 viewPerson : Model -> Browser.Document Msg
 viewPerson model =
-    let
-        titleIsLoading : Bool
-        titleIsLoading =
-            case model.selectedUser of
-                Just selectedUser ->
-                    case selectedUser.gtedAccounts of
-                        Just (Err (BadStatus 404)) ->
-                            False
-
-                        _ ->
-                            case getSelectedPersonTitle model of
-                                Just _ ->
-                                    False
-
-                                Nothing ->
-                                    case selectedUser.whitepagesEntries of
-                                        Just (Ok []) ->
-                                            False
-
-                                        _ ->
-                                            True
-
-                Nothing ->
-                    False
-
-        organizationalUnitIsLoading : Bool
-        organizationalUnitIsLoading =
-            case model.selectedUser of
-                Just selectedUser ->
-                    case selectedUser.gtedAccounts of
-                        Just (Err (BadStatus 404)) ->
-                            False
-
-                        _ ->
-                            case getSelectedPersonOrganizationalUnit model of
-                                Just _ ->
-                                    False
-
-                                Nothing ->
-                                    case selectedUser.whitepagesEntries of
-                                        Just (Ok []) ->
-                                            case selectedUser.gtedAccounts of
-                                                Just _ ->
-                                                    False
-
-                                                Nothing ->
-                                                    True
-
-                                        _ ->
-                                            True
-
-                Nothing ->
-                    False
-    in
     { title =
         if getSelectedPersonGivenName model /= Nothing && getSelectedPersonSurname model /= Nothing then
             Maybe.withDefault "" (getSelectedPersonGivenName model) ++ " " ++ Maybe.withDefault "" (getSelectedPersonSurname model) ++ " — Checkpoint"
@@ -1751,11 +1692,73 @@ viewPerson model =
                             []
                    )
                 ++ -- show title and/or OU
-                   (if titleIsLoading || organizationalUnitIsLoading then
+                   (let
+                        titleIsLoading : Bool
+                        titleIsLoading =
+                            case model.selectedUser of
+                                Just selectedUser ->
+                                    case selectedUser.gtedAccounts of
+                                        Just (Err (BadStatus 404)) ->
+                                            False
+
+                                        _ ->
+                                            case getSelectedPersonTitle model of
+                                                Just _ ->
+                                                    False
+
+                                                Nothing ->
+                                                    case selectedUser.whitepagesEntries of
+                                                        Just (Ok []) ->
+                                                            False
+
+                                                        _ ->
+                                                            True
+
+                                Nothing ->
+                                    False
+
+                        organizationalUnitIsLoading : Bool
+                        organizationalUnitIsLoading =
+                            case model.selectedUser of
+                                Just selectedUser ->
+                                    case selectedUser.gtedAccounts of
+                                        Just (Err (BadStatus 404)) ->
+                                            False
+
+                                        _ ->
+                                            case getSelectedPersonOrganizationalUnit model of
+                                                Just _ ->
+                                                    False
+
+                                                Nothing ->
+                                                    case selectedUser.whitepagesEntries of
+                                                        Just (Ok []) ->
+                                                            case selectedUser.gtedAccounts of
+                                                                Just _ ->
+                                                                    False
+
+                                                                Nothing ->
+                                                                    True
+
+                                                        _ ->
+                                                            True
+
+                                Nothing ->
+                                    False
+
+                        renderTitle : String -> Html Msg
+                        renderTitle title =
+                            if getSelectedPersonTitleIsAuthoritative model then
+                                text title
+
+                            else
+                                span [ class "text-secondary" ] [ text title ]
+                    in
+                    if titleIsLoading || organizationalUnitIsLoading then
                         [ div [ class "mb-1", class "placeholder-wave" ]
                             ((case getSelectedPersonTitle model of
                                 Just title ->
-                                    [ text title ]
+                                    [ renderTitle title ]
 
                                 Nothing ->
                                     if titleIsLoading then
@@ -1780,22 +1783,18 @@ viewPerson model =
 
                     else
                         [ div [ class "mb-1" ]
-                            (case getSelectedPersonTitle model of
-                                Just title ->
-                                    case getSelectedPersonOrganizationalUnit model of
-                                        Just ou ->
-                                            [ text (title ++ " • " ++ ou) ]
+                            (case ( getSelectedPersonTitle model, getSelectedPersonOrganizationalUnit model ) of
+                                ( Just title, Just ou ) ->
+                                    [ renderTitle title, text (" • " ++ ou) ]
 
-                                        Nothing ->
-                                            [ text title ]
+                                ( Just title, Nothing ) ->
+                                    [ renderTitle title ]
 
-                                Nothing ->
-                                    case getSelectedPersonOrganizationalUnit model of
-                                        Just ou ->
-                                            [ text ou ]
+                                ( Nothing, Just ou ) ->
+                                    [ text ou ]
 
-                                        Nothing ->
-                                            []
+                                ( Nothing, Nothing ) ->
+                                    []
                             )
                         ]
                    )
