@@ -996,6 +996,35 @@ def close_connection(exception) -> None:  # type: ignore  # pylint: disable=unus
         connection.close()
 
 
+@app.cli.command("migrate")
+def migrate() -> None:
+    """
+    Create the database schema if it does not already exist
+    """
+    connection = connect(app.config["DATABASE_LOCATION"])
+    try:
+        connection.execute("PRAGMA foreign_keys = 1")
+        connection.executescript(
+            """
+CREATE TABLE IF NOT EXISTS crosswalk (
+    gt_person_directory_id TEXT NOT NULL PRIMARY KEY COLLATE NOCASE,
+    gtid INTEGER NOT NULL UNIQUE,
+    primary_username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    keycloak_user_id TEXT UNIQUE COLLATE NOCASE,
+    google_workspace_user_id TEXT UNIQUE COLLATE NOCASE
+) strict;
+
+CREATE TABLE IF NOT EXISTS crosswalk_email_address (
+    email_address TEXT NOT NULL PRIMARY KEY COLLATE NOCASE,
+    gt_person_directory_id TEXT NOT NULL COLLATE NOCASE,
+    FOREIGN KEY(gt_person_directory_id) REFERENCES crosswalk(gt_person_directory_id)
+) strict;
+"""
+        )
+    finally:
+        connection.close()
+
+
 @app.get("/")
 @app.get("/search")
 @app.get("/view/<directory_id>")
