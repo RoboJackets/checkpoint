@@ -21,6 +21,8 @@ from zoneinfo import ZoneInfo
 from authlib.integrations.flask_client import OAuth
 from authlib.integrations.requests_client import OAuth2Session
 
+from celery import Celery, Task, shared_task
+
 from flask import Flask, g, render_template, request, session
 from flask.helpers import get_debug_flag, redirect, url_for
 
@@ -77,6 +79,29 @@ def traces_sampler(sampling_context: Dict[str, Dict[str, str]]) -> bool:
     return request_uri != "/ping"
 
 
+def init_celery(flask: Flask) -> Celery:
+    """
+    Initialize Celery
+    """
+
+    class FlaskTask(Task):  # type: ignore  # pylint: disable=abstract-method
+        """
+        Extend default Task class to have Flask context available
+
+        https://flask.palletsprojects.com/en/stable/patterns/celery/
+        """
+
+        def __call__(self, *args, **kwargs):  # type: ignore
+            with flask.app_context():
+                return self.run(*args, **kwargs)
+
+    new_celery_app = Celery("checkpoint", task_cls=FlaskTask)
+    new_celery_app.config_from_object(flask.config, namespace="CELERY")
+    new_celery_app.set_default()
+    flask.extensions["celery"] = new_celery_app
+    return new_celery_app  # type: ignore
+
+
 sentry_sdk.init(
     debug=get_debug_flag(),
     integrations=[
@@ -94,6 +119,8 @@ sentry_sdk.init(
 
 app = Flask(__name__)
 app.config.from_prefixed_env()
+
+celery_app = init_celery(app)
 
 oauth = OAuth(app)  # type: ignore
 oauth.register(  # type: ignore
@@ -3561,35 +3588,12 @@ def handle_event_callback(body: Dict[str, Any]) -> Dict[str, str]:
     return {"status": "ok"}
 
 
-@app.post("/slack")
-def handle_slack_event() -> Dict[str, str]:
+@cache.memoize()
+def slack_user_has_access(user_id: str) -> bool:
     """
-    Handle an event from Slack
+    Check if a Slack user has access to Checkpoint
     """
-    verifier = SignatureVerifier(app.config["SLACK_SIGNING_SECRET"])
-
-    if not verifier.is_valid_request(request.get_data(), request.headers):  # type: ignore
-        raise Unauthorized("Slack signature verification failed")
-
-    if request.content_type is not None and "application/json" in request.content_type:
-        body = request.get_json()
-        if body is not None and body.get("type") == "url_verification":
-            return {"challenge": body["challenge"]}
-
-    if request.content_type is not None and "application/json" in request.content_type:
-        body = request.get_json()
-        if body is not None and body.get("type") == "event_callback":
-            return handle_event_callback(body)
-
-    payload = loads(request.form.get("payload"))  # type: ignore
-
-    if payload.get("type") == "block_actions":
-        return {"status": "ok"}
-
-    if payload.get("type") != "message_action":
-        raise BadRequest("Unsupported payload type")
-
-    triggering_user_info = slack.users_info(user=payload["user"]["id"])
+    triggering_user_info = slack.users_info(user=user_id)
 
     triggering_user_email: Union[str, None] = None
 
@@ -3598,69 +3602,21 @@ def handle_slack_event() -> Dict[str, str]:
         triggering_user_email = triggering_user_profile.get("profile", {}).get("email")
 
     if triggering_user_email is None:
-        slack.views_open(
-            trigger_id=payload["trigger_id"],
-            view={
-                "type": "modal",
-                "title": {"type": "plain_text", "text": "Checkpoint"},
-                "blocks": [
-                    {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": "Could not determine your email address from Slack.",
-                        },
-                    }
-                ],
-            },
-        )
-        return {"status": "ok"}
+        return False
 
     triggering_user_results = search_by_email(
         Address(addr_spec=triggering_user_email), with_gted=False, with_title_and_organization=False
     )
 
     if len(triggering_user_results["results"]) == 0:
-        slack.views_open(
-            trigger_id=payload["trigger_id"],
-            view={
-                "type": "modal",
-                "title": {"type": "plain_text", "text": "Checkpoint"},
-                "blocks": [
-                    {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": "No Georgia Tech account found for your email address.",
-                        },
-                    }
-                ],
-            },
-        )
-        return {"status": "ok"}
+        return False
 
     keycloak_account = get_keycloak_account(
         triggering_user_results["results"][0]["directoryId"], is_frontend_request=False
     )
 
     if keycloak_account is None or "id" not in keycloak_account or keycloak_account["id"] is None:
-        slack.views_open(
-            trigger_id=payload["trigger_id"],
-            view={
-                "type": "modal",
-                "title": {"type": "plain_text", "text": "Checkpoint"},
-                "blocks": [
-                    {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": "Could not find your Keycloak account.",
-                        },
-                    }
-                ],
-            },
-        )
-        return {"status": "ok"}
+        return False
 
     keycloak_user_id = keycloak_account["id"]
 
@@ -3700,10 +3656,17 @@ def handle_slack_event() -> Dict[str, str]:
                     "mappings"
                 ]:
                     if mapping.get("name") == "access":
-                        has_access = True
-                        break
+                        return True
 
-    if not has_access:
+    return False
+
+
+@shared_task
+def handle_slack_search_request(payload: Dict[str, Any]) -> None:
+    """
+    Handle a Slack interaction event
+    """
+    if slack_user_has_access(payload["user"]["id"]) is False:
         slack.views_open(
             trigger_id=payload["trigger_id"],
             view={
@@ -3720,7 +3683,6 @@ def handle_slack_event() -> Dict[str, str]:
                 ],
             },
         )
-        return {"status": "ok"}
 
     mentioned_users = re.findall(r"<@(U[A-Z0-9]+)>", payload["message"].get("text", ""))
 
@@ -3751,7 +3713,6 @@ def handle_slack_event() -> Dict[str, str]:
                 ],
             },
         )
-        return {"status": "ok"}
 
     lookup_results = search_by_email(Address(addr_spec=lookup_email))
 
@@ -3764,7 +3725,51 @@ def handle_slack_event() -> Dict[str, str]:
         },
     )
 
+
+@app.post("/slack/interaction")
+def handle_slack_interaction() -> Dict[str, str]:
+    """
+    Handle a Slack interaction event
+    """
+    verifier = SignatureVerifier(app.config["SLACK_SIGNING_SECRET"])
+
+    if not verifier.is_valid_request(request.get_data(), request.headers):  # type: ignore
+        raise Unauthorized("Slack signature verification failed")
+
+    payload = loads(request.form.get("payload"))  # type: ignore
+
+    if payload.get("type") == "block_actions":
+        return {"status": "ok"}
+
+    if payload.get("type") != "message_action":
+        raise BadRequest("Unsupported payload type")
+
+    handle_slack_search_request.delay(payload)
+
     return {"status": "ok"}
+
+
+@app.post("/slack")
+def handle_slack_event() -> Dict[str, str]:
+    """
+    Handle an event from Slack
+    """
+    verifier = SignatureVerifier(app.config["SLACK_SIGNING_SECRET"])
+
+    if not verifier.is_valid_request(request.get_data(), request.headers):  # type: ignore
+        raise Unauthorized("Slack signature verification failed")
+
+    if request.content_type is not None and "application/json" in request.content_type:
+        body = request.get_json()
+        if body is not None and body.get("type") == "url_verification":
+            return {"challenge": body["challenge"]}
+
+    if request.content_type is not None and "application/json" in request.content_type:
+        body = request.get_json()
+        if body is not None and body.get("type") == "event_callback":
+            return handle_event_callback(body)
+
+    raise BadRequest("Unsupported payload type")
 
 
 @app.get("/ping")

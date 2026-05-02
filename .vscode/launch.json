@@ -23,15 +23,22 @@
             "autoStartBrowser": false
         },
         {
-            "name": "Migrate",
+            "name": "Celery",
             "type": "debugpy",
             "request": "launch",
-            "module": "migrate",
-            "env": {},
+            "module": "celery",
             "envFile": "${workspaceFolder}/.env",
-            "args": [],
+            "args": [
+                "--app",
+                "checkpoint.celery_app",
+                "worker",
+                "--loglevel",
+                "DEBUG",
+                "--pool",
+                "solo"
+            ],
             "jinja": true,
             "autoStartBrowser": false
-        }
+        },
     ]
 }

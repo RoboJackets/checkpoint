@@ -7,7 +7,7 @@ authors = [
 ]
 license = {text = "MIT"}
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = "^3.12"
 dependencies = [
     "flask (>=3.1.2,<4.0.0)",
     "authlib (>=1.6.5,<2.0.0)",
@@ -36,7 +36,8 @@ dev = [
     "pylint (>=4.0.3,<5.0.0)",
     "types-requests (>=2.32.4.20250913,<3.0.0.0)",
     "types-ldap3 (>=2.9.13.20251121,<3.0.0.0)",
-    "types-authlib (>=1.6.5.20251005,<2.0.0.0)"
+    "types-authlib (>=1.6.5.20251005,<2.0.0.0)",
+    "celery-types (>=0.26.0,<0.27.0)"
 ]
 
 
