@@ -725,6 +725,11 @@ def search_keycloak(**kwargs: Union[str, bool]) -> List[Dict[str, Any]]:
     return keycloak_response.json()  # type: ignore
 
 
+@cache.memoize(
+    unless=lambda _f, *_args, **kwargs: kwargs.get("bypass_cache", False),
+    response_filter=lambda result: result is not None,
+    args_to_ignore=["bypass_cache"],
+)
 def search_apiary(  # pylint: disable=too-many-arguments
     *,
     directory_id: Union[str, None] = None,
@@ -808,7 +813,9 @@ def search_apiary(  # pylint: disable=too-many-arguments
         if fallback_gtid is None:
             return None
 
-        return search_apiary(gtid=fallback_gtid, include=include, bypass_cache=bypass_cache)
+        return search_apiary(  # type: ignore[no-any-return]
+            gtid=fallback_gtid, include=include, bypass_cache=bypass_cache
+        )
 
     apiary_response.raise_for_status()
 
