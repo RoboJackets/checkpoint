@@ -256,71 +256,71 @@ job "checkpoint" {
       shutdown_delay = "30s"
     }
 
-    # # task "worker" {
-    #   driver = "docker"
+    task "worker" {
+      driver = "docker"
 
-    #   lifecycle {
-    #     hook = "poststart"
-    #     sidecar = true
-    #   }
+      lifecycle {
+        hook = "poststart"
+        sidecar = true
+      }
 
-    #   consul {}
+      consul {}
 
-    #   config {
-    #     image = var.image
+      config {
+        image = var.image
 
-    #     network_mode = "host"
+        network_mode = "host"
 
-    #     entrypoint = [
-    #       "/usr/local/bin/celery",
-    #       "--app",
-    #       "workspace_onboarding_ux.celery_app",
-    #       "worker",
-    #       "--loglevel",
-    #       "DEBUG",
-    #     ]
-    #   }
+        entrypoint = [
+          "/usr/local/bin/celery",
+          "--app",
+          "checkpoint.celery_app",
+          "worker",
+          "--loglevel",
+          "DEBUG",
+        ]
+      }
 
-    #   resources {
-    #     cpu = 100
-    #     memory = 256
-    #     memory_max = 2048
-    #   }
+      resources {
+        cpu = 100
+        memory = 256
+        memory_max = 2048
+      }
 
-    #   template {
-    #     data = trimspace(file("conf/.env.tpl"))
+      template {
+        data = trimspace(file("conf/.env.tpl"))
 
-    #     destination = "/secrets/.env"
-    #     env = true
-    #   }
+        destination = "/secrets/.env"
+        env = true
+      }
 
-    #   template {
-    #     data = "SENTRY_RELEASE=\"${split("@", var.image)[1]}\""
+      template {
+        data = "SENTRY_RELEASE=\"${split("@", var.image)[1]}\""
 
-    #     destination = "/secrets/.sentry_release"
-    #     env = true
-    #   }
+        destination = "/secrets/.sentry_release"
+        env = true
+      }
 
-    #   template {
-    #     data = "FLASK_SERVER_NAME=\"${var.hostname}\""
+      template {
+        data = "FLASK_SERVER_NAME=\"${var.hostname}\""
 
-    #     destination = "/secrets/.flask_server_name"
-    #     env = true
-    #   }
+        destination = "/secrets/.flask_server_name"
+        env = true
+      }
 
-    #   env {
-    #     ATTR_CPU_NUMCORES = "${attr.cpu.numcores}"
-    #   }
+      env {
+        ATTR_CPU_NUMCORES = "${attr.cpu.numcores}"
+      }
 
-    #   restart {
-    #     attempts = 1
-    #     delay = "10s"
-    #     interval = "1m"
-    #     mode = "fail"
-    #   }
+      restart {
+        attempts = 1
+        delay = "10s"
+        interval = "1m"
+        mode = "fail"
+      }
 
-    #   shutdown_delay = "30s"
-    # }
+      shutdown_delay = "30s"
+    }
 
     task "redis" {
       driver = "docker"
