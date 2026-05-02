@@ -817,57 +817,85 @@ def search_apiary(  # pylint: disable=too-many-arguments
     if user is None:
         return None
 
+    update_crosswalk_from_apiary_user(user)
+
+    return user  # type: ignore[no-any-return]
+
+
+def update_crosswalk_from_apiary_user(user: Dict[str, Any]) -> None:
+    """
+    Upsert the identifiers and email addresses from an Apiary user object into Crosswalk.
+    """
     if (
-        user.get("gtPersonDirectoryId") is not None
-        and user.get("gtid") is not None
-        and user.get("uid") is not None
+        user.get("gtPersonDirectoryId") is None
+        or user.get("gtid") is None
+        or user.get("uid") is None
     ):
+        return
+
+    db().execute(
+        (
+            "INSERT INTO crosswalk (gt_person_directory_id, gtid, primary_username)"
+            " VALUES (:gt_person_directory_id, :gtid, :primary_username)"
+            " ON CONFLICT DO NOTHING"
+        ),
+        {
+            "gt_person_directory_id": user["gtPersonDirectoryId"],
+            "gtid": user["gtid"],
+            "primary_username": user["uid"],
+        },
+    )
+
+    if user.get("id") is not None:
         db().execute(
             (
-                "INSERT INTO crosswalk (gt_person_directory_id, gtid, primary_username)"
-                " VALUES (:gt_person_directory_id, :gtid, :primary_username)"
-                " ON CONFLICT DO NOTHING"
+                "UPDATE crosswalk SET apiary_user_id = (:apiary_user_id)"
+                " WHERE gt_person_directory_id = (:gt_person_directory_id)"
             ),
             {
+                "apiary_user_id": user["id"],
                 "gt_person_directory_id": user["gtPersonDirectoryId"],
-                "gtid": user["gtid"],
-                "primary_username": user["uid"],
             },
         )
 
-        if user.get("id") is not None:
-            db().execute(
-                (
-                    "UPDATE crosswalk SET apiary_user_id = (:apiary_user_id)"
-                    " WHERE gt_person_directory_id = (:gt_person_directory_id)"
-                ),
-                {
-                    "apiary_user_id": user["id"],
-                    "gt_person_directory_id": user["gtPersonDirectoryId"],
-                },
-            )
+    for email_address in (
+        user.get("gt_email"),
+        user.get("gmail_address"),
+        user.get("clickup_email"),
+    ):
+        if email_address is None:
+            continue
 
-        for email_address in (
-            user.get("gt_email"),
-            user.get("gmail_address"),
-            user.get("clickup_email"),
-        ):
-            if email_address is None:
-                continue
+        db().execute(
+            (
+                "INSERT INTO crosswalk_email_address (email_address, gt_person_directory_id)"  # noqa
+                " VALUES (:email_address, :gt_person_directory_id)"
+                " ON CONFLICT DO UPDATE SET gt_person_directory_id = (:gt_person_directory_id) WHERE email_address = (:email_address)"  # noqa
+            ),
+            {
+                "email_address": email_address,
+                "gt_person_directory_id": user["gtPersonDirectoryId"],
+            },
+        )
 
-            db().execute(
-                (
-                    "INSERT INTO crosswalk_email_address (email_address, gt_person_directory_id)"  # noqa
-                    " VALUES (:email_address, :gt_person_directory_id)"
-                    " ON CONFLICT DO UPDATE SET gt_person_directory_id = (:gt_person_directory_id) WHERE email_address = (:email_address)"  # noqa
-                ),
-                {
-                    "email_address": email_address,
-                    "gt_person_directory_id": user["gtPersonDirectoryId"],
-                },
-            )
 
-    return user  # type: ignore[no-any-return]
+def fuzzy_search_apiary(query: str) -> List[Dict[str, Any]]:
+    """
+    Run a fuzzy user search against Apiary and update Crosswalk for each returned user.
+    """
+    apiary_response = apiary.post(
+        url=app.config["APIARY_BASE_URL"] + "/api/v1/users/fuzzySearch",
+        json={"query": query},
+        timeout=(5, 5),
+    )
+    apiary_response.raise_for_status()
+
+    users: List[Dict[str, Any]] = apiary_response.json().get("users", [])
+
+    for user in users:
+        update_crosswalk_from_apiary_user(user)
+
+    return users
 
 
 def clean_affiliations(affiliations: List[str]) -> List[str]:
@@ -1617,16 +1645,7 @@ def search() -> (
                 "exactMatch": False,
             }
 
-        apiary_response = apiary.post(
-            url=app.config["APIARY_BASE_URL"] + "/api/v1/users/fuzzySearch",
-            json={
-                "query": query,
-            },
-            timeout=(5, 5),
-        )
-        apiary_response.raise_for_status()
-
-        for account in apiary_response.json()["users"]:
+        for account in fuzzy_search_apiary(query):
             formatted_results.append(
                 format_search_result(
                     get_gted_primary_account(uid=account["uid"]),  # type: ignore
