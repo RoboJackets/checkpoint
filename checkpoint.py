@@ -553,20 +553,11 @@ def get_actor(**kwargs: str) -> Dict[str, Union[str, None]]:
                 }
 
     if "apiary_user_id" in kwargs:
-        apiary_response = apiary.get(
-            url=app.config["APIARY_BASE_URL"] + "/api/v1/users/" + str(kwargs["apiary_user_id"]),
-            timeout=(5, 5),
-        )
-        apiary_response.raise_for_status()
+        user = search_apiary(apiary_user_id=kwargs["apiary_user_id"])
 
-        if (
-            "user" in apiary_response.json()
-            and apiary_response.json()["user"] is not None
-            and "full_name" in apiary_response.json()["user"]
-            and apiary_response.json()["user"]["full_name"] is not None
-        ):
+        if user is not None and user.get("full_name") is not None:
             return {
-                "actorDisplayName": apiary_response.json()["user"]["full_name"],
+                "actorDisplayName": user["full_name"],
             }
 
     if "email" in kwargs:
@@ -732,6 +723,139 @@ def search_keycloak(**kwargs: Union[str, bool]) -> List[Dict[str, Any]]:
                 )
 
     return keycloak_response.json()  # type: ignore
+
+
+def search_apiary(  # pylint: disable=too-many-arguments
+    *,
+    directory_id: Union[str, None] = None,
+    gtid: Union[str, int, None] = None,
+    uid: Union[str, None] = None,
+    apiary_user_id: Union[str, int, None] = None,
+    email: Union[str, None] = None,
+    include: Union[List[str], None] = None,
+    bypass_cache: bool = False,
+) -> Union[Dict[str, Any], None]:
+    """
+    Look up a single user in Apiary by one of the supported identifiers and update Crosswalk
+    with the returned identifiers (gtPersonDirectoryId, gtid, primary_username, email addresses).
+
+    Exactly one of directory_id, gtid, uid, apiary_user_id, email must be provided. On 404 for
+    a directory_id or uid lookup, automatically retry with a gtid resolved from Crosswalk
+    (falling back to GTED) if available.
+    """
+    provided = {
+        "directory_id": directory_id,
+        "gtid": gtid,
+        "uid": uid,
+        "apiary_user_id": apiary_user_id,
+        "email": email,
+    }
+    supplied = [name for name, value in provided.items() if value is not None]
+
+    if len(supplied) != 1:
+        raise InternalServerError("search_apiary: must supply exactly one identifier")
+
+    params = {"include": ",".join(include)} if include else {}
+    headers = {"x-cache-bypass": "bypass"} if bypass_cache else {}
+
+    if email is not None:
+        apiary_response = apiary.post(
+            url=app.config["APIARY_BASE_URL"] + "/api/v1/users/searchByEmail",
+            json={"email": email},
+            params=params,
+            headers=headers,
+            timeout=(5, 5),
+        )
+    else:
+        key = directory_id or gtid or uid or apiary_user_id
+        apiary_response = apiary.get(
+            url=app.config["APIARY_BASE_URL"] + "/api/v1/users/" + str(key),
+            params=params,
+            headers=headers,
+            timeout=(5, 5),
+        )
+
+    if apiary_response.status_code == 404:
+        fallback_gtid: Union[str, int, None] = None
+
+        if directory_id is not None:
+            cursor = db().execute(
+                "SELECT gtid FROM crosswalk WHERE gt_person_directory_id = (:directory_id)",
+                {"directory_id": directory_id},
+            )
+            row = cursor.fetchone()
+
+            if row is not None:
+                fallback_gtid = row[0]
+            else:
+                gted_account = get_gted_primary_account(gtPersonDirectoryId=directory_id)
+                if gted_account is not None:
+                    fallback_gtid = gted_account["gtGTID"]
+        elif uid is not None:
+            cursor = db().execute(
+                "SELECT gtid FROM crosswalk WHERE primary_username = (:uid)",
+                {"uid": uid},
+            )
+            row = cursor.fetchone()
+
+            if row is not None:
+                fallback_gtid = row[0]
+            else:
+                gted_account = get_gted_primary_account(uid=uid)
+                if gted_account is not None:
+                    fallback_gtid = gted_account["gtGTID"]
+
+        if fallback_gtid is None:
+            return None
+
+        return search_apiary(gtid=fallback_gtid, include=include, bypass_cache=bypass_cache)
+
+    apiary_response.raise_for_status()
+
+    user = apiary_response.json().get("user")
+
+    if user is None:
+        return None
+
+    if (
+        user.get("gtPersonDirectoryId") is not None
+        and user.get("gtid") is not None
+        and user.get("uid") is not None
+    ):
+        db().execute(
+            (
+                "INSERT INTO crosswalk (gt_person_directory_id, gtid, primary_username)"
+                " VALUES (:gt_person_directory_id, :gtid, :primary_username)"
+                " ON CONFLICT DO NOTHING"
+            ),
+            {
+                "gt_person_directory_id": user["gtPersonDirectoryId"],
+                "gtid": user["gtid"],
+                "primary_username": user["uid"],
+            },
+        )
+
+        for email_address in (
+            user.get("gt_email"),
+            user.get("gmail_address"),
+            user.get("clickup_email"),
+        ):
+            if email_address is None:
+                continue
+
+            db().execute(
+                (
+                    "INSERT INTO crosswalk_email_address (email_address, gt_person_directory_id)"  # noqa
+                    " VALUES (:email_address, :gt_person_directory_id)"
+                    " ON CONFLICT DO UPDATE SET gt_person_directory_id = (:gt_person_directory_id) WHERE email_address = (:email_address)"  # noqa
+                ),
+                {
+                    "email_address": email_address,
+                    "gt_person_directory_id": user["gtPersonDirectoryId"],
+                },
+            )
+
+    return user  # type: ignore[no-any-return]
 
 
 def clean_affiliations(affiliations: List[str]) -> List[str]:
@@ -1159,20 +1283,16 @@ def search_by_username(username: str, with_title_and_organization: bool = True) 
     """
     Search for a person by username
     """
-    apiary_response = apiary.get(
-        url=app.config["APIARY_BASE_URL"] + "/api/v1/users/" + username,
-        timeout=(5, 5),
-    )
-    if apiary_response.status_code == 200:
+    user = search_apiary(uid=username)
+
+    if user is not None:
         return {
             "results": [
                 format_search_result(
                     {
-                        "givenName": apiary_response.json()["user"]["first_name"],
-                        "sn": apiary_response.json()["user"]["last_name"],
-                        "gtPersonDirectoryId": apiary_response.json()["user"][
-                            "gtPersonDirectoryId"
-                        ],
+                        "givenName": user["first_name"],
+                        "sn": user["last_name"],
+                        "gtPersonDirectoryId": user["gtPersonDirectoryId"],
                         "eduPersonPrimaryAffiliation": None,
                         "eduPersonScopedAffiliation": [],
                     },
@@ -1182,8 +1302,6 @@ def search_by_username(username: str, with_title_and_organization: bool = True) 
             ],
             "exactMatch": True,
         }
-    if apiary_response.status_code != 404:
-        apiary_response.raise_for_status()
 
     gted_account = get_gted_primary_account(uid=username)
 
@@ -1239,39 +1357,25 @@ def search_by_email(
 
     if row is not None:
         # found person in crosswalk, return that
-        apiary_response = apiary.get(
-            url=app.config["APIARY_BASE_URL"] + "/api/v1/users/" + row[0],
-            timeout=(5, 5),
-        )
-        if apiary_response.status_code == 200:
+        user = search_apiary(directory_id=row[0])
+
+        if user is not None:
             return {
                 "results": [
                     format_search_result(
                         {
-                            "givenName": apiary_response.json()["user"]["first_name"],
-                            "sn": apiary_response.json()["user"]["last_name"],
-                            "gtPersonDirectoryId": apiary_response.json()["user"][
-                                "gtPersonDirectoryId"
-                            ],
+                            "givenName": user["first_name"],
+                            "sn": user["last_name"],
+                            "gtPersonDirectoryId": user["gtPersonDirectoryId"],
                             "eduPersonPrimaryAffiliation": None,
                             "eduPersonScopedAffiliation": [],
                         },
-                        (
-                            search_whitepages(uid=apiary_response.json()["user"]["uid"])
-                            if with_title_and_organization
-                            else []
-                        ),
-                        (
-                            search_gtad(uid=apiary_response.json()["user"]["uid"])
-                            if with_title_and_organization
-                            else None
-                        ),
+                        (search_whitepages(uid=user["uid"]) if with_title_and_organization else []),
+                        (search_gtad(uid=user["uid"]) if with_title_and_organization else None),
                     ),
                 ],
                 "exactMatch": True,
             }
-        if apiary_response.status_code != 404:
-            apiary_response.raise_for_status()
 
         gted_account = get_gted_primary_account(gtPersonDirectoryId=row[0])
 
@@ -1321,26 +1425,13 @@ def search_by_email(
             if len(username_results["results"]) > 0:
                 return username_results
 
-    apiary_result = apiary.post(
-        url=app.config["APIARY_BASE_URL"] + "/api/v1/users/searchByEmail",
-        json={
-            "email": email_address.addr_spec,
-        },
-    )
+    apiary_user = search_apiary(email=email_address.addr_spec)
 
-    if apiary_result.status_code != 404:
-        apiary_result.raise_for_status()
-
-        if (
-            "user" in apiary_result.json()
-            and apiary_result.json()["user"] is not None
-            and "uid" in apiary_result.json()["user"]
-            and apiary_result.json()["user"]["uid"] is not None
-        ):
-            return search_by_username(
-                apiary_result.json()["user"]["uid"],
-                with_title_and_organization=with_title_and_organization,
-            )
+    if apiary_user is not None and apiary_user.get("uid") is not None:
+        return search_by_username(
+            apiary_user["uid"],
+            with_title_and_organization=with_title_and_organization,
+        )
 
     keycloak_results = search_keycloak(email=email_address.addr_spec, exact=True)
 
@@ -1740,49 +1831,13 @@ def get_apiary_account(directory_id: str, is_frontend_request: bool = True) -> D
         if session["has_access"] is not True:
             raise Forbidden("Access denied")
 
-    apiary_response = apiary.get(
-        url=app.config["APIARY_BASE_URL"] + "/api/v1/users/" + directory_id,
-        params={
-            "include": "actions,attendance.recorded,attendance.attendable,teams,roles",
-        },
-        headers={
-            "x-cache-bypass": "bypass",
-        },
-        timeout=(5, 5),
+    user = search_apiary(
+        directory_id=directory_id,
+        include=["actions", "attendance.recorded", "attendance.attendable", "teams", "roles"],
+        bypass_cache=True,
     )
-    if apiary_response.status_code == 404:
-        cursor = db().execute(
-            "SELECT gtid FROM crosswalk WHERE gt_person_directory_id = (:directory_id)",
-            {"directory_id": directory_id},
-        )
-        row = cursor.fetchone()
 
-        if row is not None:
-            gtid = row[0]
-        else:
-            gted_account = get_gted_primary_account(gtPersonDirectoryId=directory_id)
-
-            if gted_account is None:
-                raise NotFound("Provided directory ID was not found in Crosswalk or GTED")
-
-            gtid = gted_account["gtGTID"]
-
-        apiary_response = apiary.get(
-            url=app.config["APIARY_BASE_URL"] + "/api/v1/users/" + str(gtid),
-            params={
-                "include": "actions,attendance.recorded,attendance.attendable,teams,roles",
-            },
-            headers={
-                "x-cache-bypass": "bypass",
-            },
-            timeout=(5, 5),
-        )
-        if apiary_response.status_code == 404:
-            return {}
-
-    apiary_response.raise_for_status()
-
-    return apiary_response.json()["user"]  # type: ignore
+    return user or {}
 
 
 @app.get("/view/<directory_id>/events")
@@ -1965,42 +2020,17 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
                 | get_actor(**event["authDetails"])
             )
 
-    cursor = db().execute(
-        "SELECT gtid FROM crosswalk WHERE gt_person_directory_id = (:directory_id)",
-        {"directory_id": directory_id},
+    apiary_user = (
+        search_apiary(
+            directory_id=directory_id,
+            include=["actions", "attendance.recorded", "attendance.attendable"],
+            bypass_cache=True,
+        )
+        or {}
     )
-    row = cursor.fetchone()
 
-    if row is not None:
-        gtid = row[0]
-    else:
-        gted_account = get_gted_primary_account(gtPersonDirectoryId=directory_id)
-
-        if gted_account is None:
-            raise NotFound("Provided directory ID was not found in Crosswalk or GTED")
-
-        gtid = gted_account["gtGTID"]
-
-    apiary_response = apiary.get(
-        url=app.config["APIARY_BASE_URL"] + "/api/v1/users/" + str(gtid),
-        params={
-            "include": "actions,attendance.recorded,attendance.attendable",
-        },
-        headers={
-            "x-cache-bypass": "bypass",
-        },
-        timeout=(5, 5),
-    )
-    if apiary_response.status_code != 404:
-        apiary_response.raise_for_status()
-
-    if (
-        "user" in apiary_response.json()
-        and apiary_response.json()["user"] is not None
-        and "attendance" in apiary_response.json()["user"]
-        and apiary_response.json()["user"]["attendance"] is not None
-    ):
-        for attendance in apiary_response.json()["user"]["attendance"]:
+    if apiary_user.get("attendance") is not None:
+        for attendance in apiary_user["attendance"]:
             if "recorded_by" in attendance and attendance["recorded_by"] is not None:
                 actor = get_actor(**attendance["recorded_by"])
             else:
@@ -2036,13 +2066,8 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
                 | actor
             )
 
-    if (
-        "user" in apiary_response.json()
-        and apiary_response.json()["user"] is not None
-        and "actions" in apiary_response.json()["user"]
-        and apiary_response.json()["user"]["actions"] is not None
-    ):
-        for action in apiary_response.json()["user"]["actions"]:
+    if apiary_user.get("actions") is not None:
+        for action in apiary_user["actions"]:
             print(action)
             if "actionable" not in action or action["actionable"] is None:
                 continue
