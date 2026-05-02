@@ -835,6 +835,18 @@ def search_apiary(  # pylint: disable=too-many-arguments
             },
         )
 
+        if user.get("id") is not None:
+            db().execute(
+                (
+                    "UPDATE crosswalk SET apiary_user_id = (:apiary_user_id)"
+                    " WHERE gt_person_directory_id = (:gt_person_directory_id)"
+                ),
+                {
+                    "apiary_user_id": user["id"],
+                    "gt_person_directory_id": user["gtPersonDirectoryId"],
+                },
+            )
+
         for email_address in (
             user.get("gt_email"),
             user.get("gmail_address"),
@@ -1021,20 +1033,30 @@ def format_search_result_blocks(
 
         apiary_button = []
 
-        apiary_account = search_apiary(directory_id=result["directoryId"])
+        cursor = db().execute(
+            "SELECT apiary_user_id FROM crosswalk WHERE gt_person_directory_id = (:directory_id)",
+            {"directory_id": result["directoryId"]},
+        )
+        row = cursor.fetchone()
 
-        if (
-            apiary_account is not None
-            and "id" in apiary_account
-            and apiary_account["id"] is not None
-        ):
+        if row is not None and row[0] is not None:
+            apiary_user_id = row[0]
+        else:
+            apiary_account = search_apiary(directory_id=result["directoryId"])
+            apiary_user_id = (
+                apiary_account["id"]
+                if apiary_account is not None and apiary_account.get("id") is not None
+                else None
+            )
+
+        if apiary_user_id is not None:
             apiary_button = [
                 {
                     "type": "button",
                     "text": {"type": "plain_text", "text": "View in Apiary"},
                     "url": app.config["APIARY_BASE_URL"]
                     + "/nova/resources/users/"
-                    + apiary_account["id"],
+                    + str(apiary_user_id),
                 }
             ]
 
@@ -1162,7 +1184,8 @@ CREATE TABLE IF NOT EXISTS crosswalk (
     gtid INTEGER NOT NULL UNIQUE,
     primary_username TEXT NOT NULL UNIQUE COLLATE NOCASE,
     keycloak_user_id TEXT UNIQUE COLLATE NOCASE,
-    google_workspace_user_id TEXT UNIQUE COLLATE NOCASE
+    google_workspace_user_id TEXT UNIQUE COLLATE NOCASE,
+    apiary_user_id INTEGER UNIQUE
 ) strict;
 
 CREATE TABLE IF NOT EXISTS crosswalk_email_address (
