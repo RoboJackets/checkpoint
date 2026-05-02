@@ -278,6 +278,8 @@ job "checkpoint" {
           "worker",
           "--loglevel",
           "DEBUG",
+          "--pool",
+          "solo",
         ]
       }
 
