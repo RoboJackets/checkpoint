@@ -1021,7 +1021,7 @@ def format_search_result_blocks(
 
         apiary_button = []
 
-        apiary_account = get_apiary_account(result["directoryId"], is_frontend_request=False)
+        apiary_account = search_apiary(directory_id=result["directoryId"])
 
         if (
             apiary_account is not None
