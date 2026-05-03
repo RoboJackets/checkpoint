@@ -341,9 +341,15 @@ def search_whitepages(**kwargs: str) -> List[Dict[str, Dict[str, List[str]]]]:
     """
     Search Whitepages with a given LDAP filter
     """
+    whitepages_port = app.config.get("WHITEPAGES_PORT")
+
     with sentry_sdk.start_span(op="whitepages.connect"):
         whitepages = Connection(
-            Server("whitepages.gatech.edu", connect_timeout=1),
+            Server(
+                app.config.get("WHITEPAGES_HOST", "whitepages.gatech.edu"),
+                port=int(whitepages_port) if whitepages_port is not None else None,
+                connect_timeout=1,
+            ),
             auto_bind=True,
             raise_exceptions=True,
             receive_timeout=1,
@@ -411,9 +417,15 @@ def search_gtad(uid: str) -> Union[Dict[str, List[str]], None]:
     """
     Look up an account in GTAD by uid and return its title/department attributes
     """
+    gtad_port = app.config.get("GTAD_PORT")
+
     with sentry_sdk.start_span(op="gtad.connect"):
         ldap = Connection(
-            Server("campusad.ad.gatech.edu", connect_timeout=1),
+            Server(
+                app.config.get("GTAD_HOST", "campusad.ad.gatech.edu"),
+                port=int(gtad_port) if gtad_port is not None else None,
+                connect_timeout=1,
+            ),
             user=app.config["GTAD_BIND_DN"],
             password=app.config["GTAD_BIND_PASSWORD"],
             auto_bind=True,
@@ -1744,8 +1756,14 @@ def get_gtad_account(directory_id: str) -> Any:
 
         primary_username = gted_account["gtPrimaryGTAccountUsername"]
 
+    gtad_port = app.config.get("GTAD_PORT")
+
     ldap = Connection(
-        Server("campusad.ad.gatech.edu", connect_timeout=1),
+        Server(
+            app.config.get("GTAD_HOST", "campusad.ad.gatech.edu"),
+            port=int(gtad_port) if gtad_port is not None else None,
+            connect_timeout=1,
+        ),
         user=app.config["GTAD_BIND_DN"],
         password=app.config["GTAD_BIND_PASSWORD"],
         auto_bind=True,
