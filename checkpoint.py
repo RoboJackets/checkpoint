@@ -135,7 +135,7 @@ keycloak = OAuth2Session(
     token_endpoint=urlunparse(
         (
             urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,
-            urlparse(app.config["KEYCLOAK_METADATA_URL"]).hostname,
+            urlparse(app.config["KEYCLOAK_METADATA_URL"]).netloc,
             "/realms/master/protocol/openid-connect/token",
             "",
             "",
@@ -447,7 +447,7 @@ def get_realms() -> List[Dict[str, Any]]:
         url=urlunparse(
             (
                 urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,
-                urlparse(app.config["KEYCLOAK_METADATA_URL"]).hostname,
+                urlparse(app.config["KEYCLOAK_METADATA_URL"]).netloc,
                 "/admin/realms",
                 "",
                 "",
@@ -513,7 +513,7 @@ def get_actor(**kwargs: str) -> Dict[str, Union[str, None]]:
                     url=urlunparse(
                         (
                             urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,
-                            urlparse(app.config["KEYCLOAK_METADATA_URL"]).hostname,
+                            urlparse(app.config["KEYCLOAK_METADATA_URL"]).netloc,
                             "/admin/realms/" + realm["realm"] + "/users/" + kwargs["userId"],
                             "",
                             "",
@@ -539,7 +539,7 @@ def get_actor(**kwargs: str) -> Dict[str, Union[str, None]]:
                     "actorLink": urlunparse(
                         (
                             urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,
-                            urlparse(app.config["KEYCLOAK_METADATA_URL"]).hostname,
+                            urlparse(app.config["KEYCLOAK_METADATA_URL"]).netloc,
                             "/admin/master/console/",
                             "",
                             "",
@@ -624,7 +624,7 @@ def get_client_display_name(**kwargs: str) -> str:
                     url=urlunparse(
                         (
                             urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,
-                            urlparse(app.config["KEYCLOAK_METADATA_URL"]).hostname,
+                            urlparse(app.config["KEYCLOAK_METADATA_URL"]).netloc,
                             "/admin/realms/" + realm["realm"] + "/clients/" + kwargs["clientId"],
                             "",
                             "",
@@ -650,7 +650,7 @@ def search_keycloak(**kwargs: Union[str, bool]) -> List[Dict[str, Any]]:
         url=urlunparse(
             (
                 urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,
-                urlparse(app.config["KEYCLOAK_METADATA_URL"]).hostname,
+                urlparse(app.config["KEYCLOAK_METADATA_URL"]).netloc,
                 "/admin/realms/" + app.config["KEYCLOAK_REALM"] + "/users",
                 "",
                 "",
@@ -1110,7 +1110,7 @@ def format_search_result_blocks(
                     "url": urlunparse(
                         (
                             urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,
-                            urlparse(app.config["KEYCLOAK_METADATA_URL"]).hostname,
+                            urlparse(app.config["KEYCLOAK_METADATA_URL"]).netloc,
                             "/admin/master/console/",
                             "",
                             "",
@@ -1268,7 +1268,7 @@ def spa(directory_id: Union[str, None] = None) -> Any:  # pylint: disable=unused
                 keycloak_user_deep_link=urlunparse(
                     (
                         urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,
-                        urlparse(app.config["KEYCLOAK_METADATA_URL"]).hostname,
+                        urlparse(app.config["KEYCLOAK_METADATA_URL"]).netloc,
                         "/admin/master/console/",
                         "",
                         "",
@@ -1288,7 +1288,7 @@ def spa(directory_id: Union[str, None] = None) -> Any:  # pylint: disable=unused
             "keycloakDeepLinkBaseUrl": urlunparse(
                 (
                     urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,
-                    urlparse(app.config["KEYCLOAK_METADATA_URL"]).hostname,
+                    urlparse(app.config["KEYCLOAK_METADATA_URL"]).netloc,
                     "/admin/master/console/",
                     "",
                     "",
@@ -1788,7 +1788,7 @@ def get_keycloak_account(directory_id: str, is_frontend_request: bool = True) ->
             url=urlunparse(
                 (
                     urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,
-                    urlparse(app.config["KEYCLOAK_METADATA_URL"]).hostname,
+                    urlparse(app.config["KEYCLOAK_METADATA_URL"]).netloc,
                     "/admin/realms/" + app.config["KEYCLOAK_REALM"] + "/users/" + row[0],
                     "",
                     "",
@@ -1939,7 +1939,7 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
             url=urlunparse(
                 (
                     urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,
-                    urlparse(app.config["KEYCLOAK_METADATA_URL"]).hostname,
+                    urlparse(app.config["KEYCLOAK_METADATA_URL"]).netloc,
                     "/admin/realms/" + app.config["KEYCLOAK_REALM"] + "/events",
                     "",
                     "",
@@ -1966,7 +1966,7 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
                     "eventLink": urlunparse(
                         (
                             urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,
-                            urlparse(app.config["KEYCLOAK_METADATA_URL"]).hostname,
+                            urlparse(app.config["KEYCLOAK_METADATA_URL"]).netloc,
                             "/admin/master/console/",
                             "",
                             "",
@@ -1985,7 +1985,7 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
             url=urlunparse(
                 (
                     urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,
-                    urlparse(app.config["KEYCLOAK_METADATA_URL"]).hostname,
+                    urlparse(app.config["KEYCLOAK_METADATA_URL"]).netloc,
                     "/admin/realms/" + app.config["KEYCLOAK_REALM"] + "/admin-events",
                     "",
                     "",
@@ -2054,7 +2054,7 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
                     "eventLink": urlunparse(
                         (
                             urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,
-                            urlparse(app.config["KEYCLOAK_METADATA_URL"]).hostname,
+                            urlparse(app.config["KEYCLOAK_METADATA_URL"]).netloc,
                             "/admin/master/console/",
                             "",
                             "",
@@ -3698,7 +3698,7 @@ def slack_user_has_access(user_id: str) -> bool:
         url=urlunparse(
             (
                 urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,
-                urlparse(app.config["KEYCLOAK_METADATA_URL"]).hostname,
+                urlparse(app.config["KEYCLOAK_METADATA_URL"]).netloc,
                 "/admin/realms/"
                 + app.config["KEYCLOAK_REALM"]
                 + "/users/"
