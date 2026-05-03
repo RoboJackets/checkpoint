@@ -72,8 +72,65 @@ Node.js 24.x is installed via nvm. Activate with:
 export NVM_DIR="/home/ubuntu/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && nvm use 24
 ```
 
+### Local Keycloak Setup (Docker)
+
+The app needs a Keycloak instance. For local/cloud dev, run one via Docker (any port works):
+
+```sh
+dockerd &>/var/log/dockerd.log &
+# Wait for Docker to start, then:
+docker run -d --name keycloak -p 8080:8080 \
+  -e KC_BOOTSTRAP_ADMIN_USERNAME=admin \
+  -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
+  quay.io/keycloak/keycloak:26.0 start-dev
+```
+
+After Keycloak is ready (check `curl -s http://localhost:8080/realms/master/.well-known/openid-configuration`), configure it:
+
+1. Create realm `robojackets`
+2. Create OIDC client `checkpoint` (secret: `checkpoint-secret`) in the robojackets realm with redirect URI `http://localhost:5000/*`
+3. Create service-account client `checkpoint-admin` (secret: `checkpoint-admin-secret`) in the **master** realm
+4. Assign `manage-users`, `view-users`, `manage-realm`, `view-realm`, `manage-clients`, `view-clients` roles from both `master-realm` and `robojackets-realm` clients to the checkpoint-admin service account
+
+Then use these env vars:
+```
+FLASK_KEYCLOAK_METADATA_URL=http://localhost:8080/realms/robojackets/.well-known/openid-configuration
+FLASK_KEYCLOAK_CLIENT_ID=checkpoint
+FLASK_KEYCLOAK_CLIENT_SECRET=checkpoint-secret
+FLASK_KEYCLOAK_ADMIN_CLIENT_ID=checkpoint-admin
+FLASK_KEYCLOAK_ADMIN_CLIENT_SECRET=checkpoint-admin-secret
+FLASK_KEYCLOAK_REALM=robojackets
+```
+
+### Apiary Dependency
+
+The Apiary service (`https://my.robojackets.org`) is an external production API that performs OAuth token fetch at import time. Access is IP-restricted — the cloud VM IP must be whitelisted on the Apiary nginx/CloudFront configuration. Without network access to Apiary, the Flask app cannot start. There is no mock mode. The required secrets (`FLASK_APIARY_CLIENT_ID`, `FLASK_APIARY_CLIENT_SECRET`, `FLASK_APIARY_BASE_URL`) are injected via the Cursor Cloud secrets mechanism.
+
+### Starting the Flask App (Cloud Dev)
+
+After Docker/Keycloak are running and Apiary is accessible:
+
+```sh
+FLASK_APP=checkpoint.py \
+FLASK_SECRET_KEY="dev-secret-key-12345" \
+FLASK_KEYCLOAK_METADATA_URL="http://localhost:8080/realms/robojackets/.well-known/openid-configuration" \
+FLASK_KEYCLOAK_CLIENT_ID="checkpoint" \
+FLASK_KEYCLOAK_CLIENT_SECRET="checkpoint-secret" \
+FLASK_KEYCLOAK_ADMIN_CLIENT_ID="checkpoint-admin" \
+FLASK_KEYCLOAK_ADMIN_CLIENT_SECRET="checkpoint-admin-secret" \
+FLASK_KEYCLOAK_REALM="robojackets" \
+FLASK_CACHE_TYPE="SimpleCache" \
+FLASK_DEBUG="1" \
+FLASK_DATABASE_LOCATION="/tmp/checkpoint.db" \
+poetry run flask run --no-debugger --port 5000
+```
+
+A test user is pre-created in local Keycloak: `testuser` / `testpass123`.
+
 ### Gotchas
 
 - `uwsgi` requires `python3-dev` and `build-essential` system packages to compile.
 - The `static/app.js` file is not committed; it must be built via `npm run build` before the Flask app can serve the frontend.
 - `pip install poetry` may fail on Ubuntu 24.04 due to a missing RECORD file for the system `packaging` package. Workaround: `pip3 install --break-system-packages --ignore-installed packaging` first.
+- Keycloak can run on any port (e.g. 8080). The code uses `urlparse(...).netloc` to preserve port info in constructed URLs.
+- Docker in the cloud VM requires `fuse-overlayfs` storage driver and `iptables-legacy` due to nested container constraints.
