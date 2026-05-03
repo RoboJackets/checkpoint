@@ -29,16 +29,16 @@ jobs:
         run: poetry install
 
       - name: Run black
-        run: poetry run black --check checkpoint.py
+        run: poetry run black --check *.py
 
       - name: Run flake8
-        run: poetry run flake8 checkpoint.py
+        run: poetry run flake8 *.py
 
       - name: Run pylint
-        run: poetry run pylint checkpoint.py
+        run: poetry run pylint *.py
 
       - name: Run mypy
-        run: poetry run mypy --strict --scripts-are-modules checkpoint.py
+        run: poetry run mypy --strict --scripts-are-modules *.py
 
   docker:
     name: Docker
