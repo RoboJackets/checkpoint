@@ -1987,8 +1987,8 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
             elif event["type"] == "LOGOUT_ERROR":
                 description = "failed to log out of " + client_id
             else:
-                print(dumps(event))
-                raise InternalServerError("Unrecognized type in Keycloak event: " + event["type"])
+                # Skip unrecognized event types (e.g. CODE_TO_TOKEN)
+                continue
 
             events.append(
                 {
