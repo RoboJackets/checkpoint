@@ -1978,10 +1978,22 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
             else:
                 client_id = event["clientId"]
 
+            if event["type"] == "LOGIN":
+                description = "logged into " + client_id
+            elif event["type"] == "LOGOUT":
+                description = "logged out of " + client_id
+            elif event["type"] == "LOGIN_ERROR":
+                description = "failed to log into " + client_id
+            elif event["type"] == "LOGOUT_ERROR":
+                description = "failed to log out of " + client_id
+            else:
+                # Skip unrecognized event types (e.g. CODE_TO_TOKEN)
+                continue
+
             events.append(
                 {
                     "eventTimestamp": event["time"],
-                    "eventDescription": "logged into " + client_id,
+                    "eventDescription": description,
                     "eventLink": urlunparse(
                         (
                             urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,
