@@ -15,7 +15,7 @@ Endpoints:
 
 # pylint: disable=missing-function-docstring
 
-from typing import Any, Dict
+from typing import Dict
 
 from flask import Flask
 
@@ -23,7 +23,7 @@ mock_app = Flask(__name__)
 
 
 @mock_app.post("/grouper-ws/servicesRest/v4_0_000/groups")
-def groups() -> Any:
+def groups() -> Dict:
     return {
         "WsFindGroupsResults": {
             "groupResults": [
@@ -130,7 +130,7 @@ def groups() -> Any:
 
 
 @mock_app.get("/grouper-ws/servicesRest/v4_0_000/subjects/<subject_id>/memberships")
-def memberships(subject_id: str) -> Any:
+def memberships(subject_id: str) -> Dict:
     return {
         "WsGetMembershipsResults": {
             "wsMemberships": [
@@ -420,7 +420,7 @@ def memberships(subject_id: str) -> Any:
 
 
 @mock_app.get("/grouper-ws/healthcheck")
-def healthcheck() -> Any:
+def healthcheck() -> Dict:
     return {"status": "ok"}
 
 
