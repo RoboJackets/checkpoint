@@ -110,7 +110,7 @@ The Apiary service (`https://my.robojackets.org`) is an external production API 
 
 ### Starting the Flask App (Cloud Dev)
 
-After Docker/Keycloak are running and Apiary is accessible:
+After Docker/Keycloak are running, Apiary is accessible, and the mock services are started:
 
 ```sh
 FLASK_APP=checkpoint.py \
@@ -124,6 +124,15 @@ FLASK_KEYCLOAK_REALM="robojackets" \
 FLASK_CACHE_TYPE="SimpleCache" \
 FLASK_DEBUG="1" \
 FLASK_DATABASE_LOCATION="/tmp/checkpoint.db" \
+FLASK_GROUPER_BASE_URL="http://localhost:9090" \
+FLASK_GROUPER_USERNAME="dummy" \
+FLASK_GROUPER_PASSWORD="dummy" \
+FLASK_WHITEPAGES_HOST="localhost" \
+FLASK_WHITEPAGES_PORT="10389" \
+FLASK_GTAD_HOST="localhost" \
+FLASK_GTAD_PORT="10389" \
+FLASK_GTAD_BIND_DN="cn=admin,dc=ad,dc=gatech,dc=edu" \
+FLASK_GTAD_BIND_PASSWORD="dummy" \
 poetry run flask run --no-debugger --port 5000
 ```
 
@@ -140,6 +149,21 @@ poetry run flask --app grouper_mock:mock_app run --port 9090
 ```
 
 Then pass `FLASK_GROUPER_BASE_URL="http://localhost:9090"` (along with any dummy values for `FLASK_GROUPER_USERNAME` and `FLASK_GROUPER_PASSWORD`) when starting the main Flask app.
+
+### Mock LDAP Service (Whitepages + GTAD)
+
+The app depends on two Georgia Tech LDAP services — Whitepages (`whitepages.gatech.edu`) and GTAD (`campusad.ad.gatech.edu`) — both unreachable from the cloud VM. A mock LDAP server is provided in `ldap_mock.py`. Start it before Flask:
+
+```sh
+poetry run python ldap_mock.py --port 10389
+```
+
+Then pass these env vars when starting the main Flask app:
+- `FLASK_WHITEPAGES_HOST="localhost"` and `FLASK_WHITEPAGES_PORT="10389"`
+- `FLASK_GTAD_HOST="localhost"` and `FLASK_GTAD_PORT="10389"`
+- `FLASK_GTAD_BIND_DN="cn=admin,dc=ad,dc=gatech,dc=edu"` and `FLASK_GTAD_BIND_PASSWORD="dummy"`
+
+The mock returns empty results for all LDAP searches. In the UI, the Whitepages card shows "No entries" and the GTAD card renders without data (empty state). The `WHITEPAGES_HOST`, `WHITEPAGES_PORT`, `GTAD_HOST`, and `GTAD_PORT` config values default to the production hostnames and standard LDAP port when not set.
 
 ### Keycloak Access Role
 
