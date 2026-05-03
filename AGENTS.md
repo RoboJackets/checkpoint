@@ -82,7 +82,7 @@ dockerd &>/var/log/dockerd.log &
 docker run -d --name keycloak -p 8080:8080 \
   -e KC_BOOTSTRAP_ADMIN_USERNAME=admin \
   -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
-  quay.io/keycloak/keycloak:26.0 start-dev
+  quay.io/keycloak/keycloak start-dev
 ```
 
 After Keycloak is ready (check `curl -s http://localhost:8080/realms/master/.well-known/openid-configuration`), configure it:
@@ -104,7 +104,7 @@ FLASK_KEYCLOAK_REALM=robojackets
 
 ### Apiary Dependency
 
-The Apiary service (`https://my.robojackets.org`) is an external production API that performs OAuth token fetch at import time. Access is IP-restricted — the cloud VM IP must be whitelisted on the Apiary nginx/CloudFront configuration. Without network access to Apiary, the Flask app cannot start. There is no mock mode. The required secrets (`FLASK_APIARY_CLIENT_ID`, `FLASK_APIARY_CLIENT_SECRET`, `FLASK_APIARY_BASE_URL`) are injected via the Cursor Cloud secrets mechanism.
+The Apiary service (`https://my.robojackets.org`) is an external production API that performs OAuth token fetch at import time. Without access to Apiary, the Flask app cannot start. There is no mock mode. The required secrets (`FLASK_APIARY_CLIENT_ID`, `FLASK_APIARY_CLIENT_SECRET`, `FLASK_APIARY_BASE_URL`) are injected via the Cursor Cloud secrets mechanism.
 
 ### Starting the Flask App (Cloud Dev)
 
