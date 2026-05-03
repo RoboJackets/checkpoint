@@ -192,7 +192,7 @@ def get_grouper_groups() -> List[str]:
     Fetch all Grouper groups under gt:services:robojackets and return extension names
     """
     response = post(
-        url="https://grouper.gatech.edu/grouper-ws/servicesRest/v4_0_000/groups",
+        url=app.config["GROUPER_BASE_URL"] + "/grouper-ws/servicesRest/v4_0_000/groups",
         auth=(app.config["GROUPER_USERNAME"], app.config["GROUPER_PASSWORD"]),
         headers={
             "User-Agent": USER_AGENT,
@@ -1165,7 +1165,8 @@ def format_search_result_blocks(
                             },
                             {
                                 "text": {"type": "plain_text", "text": "View in Grouper"},
-                                "url": "https://grouper.gatech.edu/grouper/grouperUi/app/UiV2Main.index?operation=UiV2Subject.viewSubject&subjectId="  # noqa
+                                "url": app.config["GROUPER_BASE_URL"]
+                                + "/grouper/grouperUi/app/UiV2Main.index?operation=UiV2Subject.viewSubject&subjectId="  # noqa
                                 + primary_username
                                 + "&sourceId=gted-accounts",
                             },
@@ -3578,7 +3579,8 @@ def get_grouper_memberships(directory_id: str) -> Dict[str, Any]:
         primary_username = gted_account["gtPrimaryGTAccountUsername"]
 
     grouper_response = get(
-        url="https://grouper.gatech.edu/grouper-ws/servicesRest/v4_0_000/subjects/"
+        url=app.config["GROUPER_BASE_URL"]
+        + "/grouper-ws/servicesRest/v4_0_000/subjects/"
         + primary_username
         + "/memberships",
         auth=(app.config["GROUPER_USERNAME"], app.config["GROUPER_PASSWORD"]),
