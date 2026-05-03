@@ -1980,6 +1980,8 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
 
             if event["type"] == "LOGIN":
                 description = "logged into " + client_id
+            elif event["type"] == "CODE_TO_TOKEN":
+                description = "logged into " + client_id
             elif event["type"] == "LOGOUT":
                 description = "logged out of " + client_id
             elif event["type"] == "LOGIN_ERROR":
@@ -1987,8 +1989,10 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
             elif event["type"] == "LOGOUT_ERROR":
                 description = "failed to log out of " + client_id
             else:
-                # Skip unrecognized event types (e.g. CODE_TO_TOKEN)
-                continue
+                print(dumps(event))
+                raise InternalServerError(
+                    "Unrecognized type in Keycloak event: " + event["type"]
+                )
 
             events.append(
                 {
