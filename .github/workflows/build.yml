@@ -90,6 +90,7 @@ jobs:
     name: Prune stale images
     runs-on: ubuntu-latest
     needs: [docker, deploy-production]
+    if: ${{ github.ref == 'refs/heads/main' }}
     permissions:
       packages: write
     steps:
@@ -99,4 +100,4 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           image-names: checkpoint
           skip-shas: ${{ needs.docker.outputs.image-digest }}
-          cut-off: 0s
+          cut-off: 1h
