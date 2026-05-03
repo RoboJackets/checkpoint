@@ -104,7 +104,28 @@ FLASK_KEYCLOAK_REALM=robojackets
 
 ### Apiary Dependency
 
-The Apiary service (`https://my.robojackets.org`) is an external production API that performs OAuth token fetch at import time. Access may be IP-restricted. Without network access to Apiary, the Flask app cannot start. There is no mock mode.
+The Apiary service (`https://my.robojackets.org`) is an external production API that performs OAuth token fetch at import time. Access is IP-restricted — the cloud VM IP must be whitelisted on the Apiary nginx/CloudFront configuration. Without network access to Apiary, the Flask app cannot start. There is no mock mode. The required secrets (`FLASK_APIARY_CLIENT_ID`, `FLASK_APIARY_CLIENT_SECRET`, `FLASK_APIARY_BASE_URL`) are injected via the Cursor Cloud secrets mechanism.
+
+### Starting the Flask App (Cloud Dev)
+
+After Docker/Keycloak are running and Apiary is accessible:
+
+```sh
+FLASK_APP=checkpoint.py \
+FLASK_SECRET_KEY="dev-secret-key-12345" \
+FLASK_KEYCLOAK_METADATA_URL="http://localhost/realms/robojackets/.well-known/openid-configuration" \
+FLASK_KEYCLOAK_CLIENT_ID="checkpoint" \
+FLASK_KEYCLOAK_CLIENT_SECRET="checkpoint-secret" \
+FLASK_KEYCLOAK_ADMIN_CLIENT_ID="checkpoint-admin" \
+FLASK_KEYCLOAK_ADMIN_CLIENT_SECRET="checkpoint-admin-secret" \
+FLASK_KEYCLOAK_REALM="robojackets" \
+FLASK_CACHE_TYPE="SimpleCache" \
+FLASK_DEBUG="1" \
+FLASK_DATABASE_LOCATION="/tmp/checkpoint.db" \
+poetry run flask run --no-debugger --port 5000
+```
+
+A test user is pre-created in local Keycloak: `testuser` / `testpass123`.
 
 ### Gotchas
 
