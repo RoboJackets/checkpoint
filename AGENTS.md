@@ -131,6 +131,20 @@ A test user is pre-created in local Keycloak: `testuser` / `testpass123`.
 
 Always use a fresh incognito or private browsing window when testing the UI to avoid issues with stale cookies, cache, etc.
 
+### Mock Grouper Service
+
+The app depends on Georgia Tech's Grouper (`grouper.gatech.edu`) which is unreachable from the cloud VM. A mock is provided in `grouper_mock.py`. Start it before Flask:
+
+```sh
+poetry run flask --app grouper_mock:mock_app run --port 9090
+```
+
+Then pass `FLASK_GROUPER_BASE_URL="http://localhost:9090"` (along with any dummy values for `FLASK_GROUPER_USERNAME` and `FLASK_GROUPER_PASSWORD`) when starting the main Flask app.
+
+### Keycloak Access Role
+
+To get past the "access denied" page, the logged-in user needs a **client role** named `access` on the `checkpoint` client in the `robojackets` realm. A protocol mapper named `checkpoint-roles` (type `oidc-usermodel-client-role-mapper`) must also exist on that client to include the role in the `roles` claim of the ID token. See the Keycloak setup steps above for the full configuration.
+
 ### Gotchas
 
 - `uwsgi` requires `python3-dev` and `build-essential` system packages to compile.
