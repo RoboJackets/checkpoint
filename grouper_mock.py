@@ -13,7 +13,7 @@ Endpoints:
     GET  /grouper-ws/servicesRest/v4_0_000/subjects/<subject_id>/memberships
 """
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify
 from typing import Any, Dict
 
 mock_app = Flask(__name__)
