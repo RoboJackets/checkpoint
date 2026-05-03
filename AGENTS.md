@@ -36,6 +36,8 @@ npm run build          # production (optimized + minified)
 npm run build-debug    # debug mode (no minification, debug overlay)
 ```
 
+Always use the `build-debug` command during development so you have access to the Elm debugger within the frontend. It is available by clicking the blue Elm logo in the bottom right corner when the Elm app is running.
+
 Output goes to `static/app.js`.
 
 ### Running the Flask App Locally
@@ -126,6 +128,8 @@ poetry run flask run --no-debugger --port 5000
 ```
 
 A test user is pre-created in local Keycloak: `testuser` / `testpass123`.
+
+Always use a fresh incognito or private browsing window when testing the UI to avoid issues with stale cookies, cache, etc.
 
 ### Gotchas
 
