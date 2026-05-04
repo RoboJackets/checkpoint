@@ -40,5 +40,18 @@
             "jinja": true,
             "autoStartBrowser": false
         },
+        {
+            "name": "Migrate",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "flask",
+            "args": [
+                "--app",
+                "checkpoint",
+                "migrate"
+            ],
+            "jinja": true,
+            "autoStartBrowser": false
+        }
     ]
 }
