@@ -1920,10 +1920,10 @@ viewPerson model =
                                                             [ div [ class "mb-1" ] [ text "1 account" ] ]
 
                                                         Just (Ok Nothing) ->
-                                                            [ div [] [ text "No account" ] ]
+                                                            [ div [ class "text-secondary" ] [ text "No account" ] ]
 
                                                         Nothing ->
-                                                            [ div [ class "placeholder-wave", class "mb-1" ] [ span [ class "placeholder", class "col-1" ] [] ] ]
+                                                            [ div [ class "placeholder-wave", class "mb-1", class "text-secondary" ] [ text "Loading..." ] ]
 
                                                 Nothing ->
                                                     []
