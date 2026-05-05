@@ -1981,7 +1981,9 @@ viewPerson model =
                                                             []
 
                                                         Nothing ->
-                                                            [ div [ class "placeholder-wave" ] [ span [ class "placeholder", class "rounded-pill", class "col-1" ] [] ] ]
+                                                            [ span [ class "placeholder", class "placeholder-wave", class "badge", class "rounded-pill", class "text-bg-secondary", class "text-secondary", class "me-1" ] [ text "membership inactive" ]
+                                                            , span [ class "placeholder", class "placeholder-wave", class "badge", class "rounded-pill", class "text-bg-secondary", class "text-secondary" ] [ text "access inactive" ]
+                                                            ]
 
                                                 Nothing ->
                                                     []
