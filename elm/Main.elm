@@ -984,10 +984,10 @@ searchResultPlaceholder =
     div [ class "mb-4" ]
         [ h4 [ class "mb-1", class "placeholder-wave" ] [ span [ class "placeholder", class "col-2", class "me-1" ] [], span [ class "placeholder", class "col-3" ] [] ]
         , div [ class "mb-1", class "placeholder-wave" ] [ span [ class "placeholder", class "col-1", class "me-1" ] [], span [ class "placeholder", class "col-2" ] [] ]
-        , span [ class "rounded-pill", class "me-1", class "placeholder", class "placeholder-wave", class "col-1" ] []
-        , span [ class "rounded-pill", class "me-1", class "placeholder", class "placeholder-wave", class "col-1" ] []
-        , span [ class "rounded-pill", class "me-1", class "placeholder", class "placeholder-wave", class "col-1" ] []
-        , span [ class "rounded-pill", class "me-1", class "placeholder", class "placeholder-wave", class "col-1" ] []
+        , span [ class "badge", class "rounded-pill", class "me-1", class "placeholder", class "placeholder-wave", class "text-bg-secondary", class "text-secondary" ] [ text "STUDENT-UGRAD" ]
+        , span [ class "badge", class "rounded-pill", class "me-1", class "placeholder", class "placeholder-wave", class "text-bg-secondary", class "text-secondary" ] [ text "STUDENT-UGRAD" ]
+        , span [ class "badge", class "rounded-pill", class "me-1", class "placeholder", class "placeholder-wave", class "text-bg-secondary", class "text-secondary" ] [ text "STUDENT-UGRAD" ]
+        , span [ class "badge", class "rounded-pill", class "me-1", class "placeholder", class "placeholder-wave", class "text-bg-secondary", class "text-secondary" ] [ text "STUDENT-UGRAD" ]
         ]
 
 
@@ -2007,7 +2007,7 @@ viewPerson model =
                                                         Just (Ok groups) ->
                                                             case List.length groups of
                                                                 0 ->
-                                                                    [ div [] [ text "No groups" ] ]
+                                                                    [ div [ class "text-secondary" ] [ text "No groups" ] ]
 
                                                                 1 ->
                                                                     [ div [ class "mb-1" ] [ text "1 group" ] ]
@@ -2016,7 +2016,7 @@ viewPerson model =
                                                                     [ div [ class "mb-1" ] [ text (String.fromInt (List.length groups) ++ " groups") ] ]
 
                                                         Nothing ->
-                                                            [ div [ class "placeholder-wave", class "mb-1" ] [ span [ class "placeholder", class "col-1" ] [] ] ]
+                                                            [ div [ class "placeholder-wave", class "mb-1", class "text-secondary" ] [ text "Loading..." ] ]
 
                                                 Nothing ->
                                                     []
@@ -2031,7 +2031,7 @@ viewPerson model =
                                                             List.map (\groupName -> span [ class "badge", class "rounded-pill", class "text-bg-primary", class "me-1" ] [ text groupName ]) groups
 
                                                         Nothing ->
-                                                            [ div [ class "placeholder-wave" ] [ span [ class "placeholder", class "rounded-pill", class "col-1" ] [] ] ]
+                                                            [ span [ class "placeholder", class "placeholder-wave", class "badge", class "rounded-pill", class "text-bg-secondary", class "text-secondary", class "me-1" ] [ text "robowrestling" ] ]
 
                                                 Nothing ->
                                                     []
@@ -2055,7 +2055,7 @@ viewPerson model =
                                                             [ div [ class "mb-1" ] [ text "1 account" ] ]
 
                                                         Nothing ->
-                                                            [ div [ class "placeholder-wave", class "mb-1" ] [ span [ class "placeholder", class "col-1" ] [] ] ]
+                                                            [ div [ class "placeholder-wave", class "mb-1", class "text-secondary" ] [ text "Loading..." ] ]
 
                                                 Nothing ->
                                                     []
@@ -2070,7 +2070,7 @@ viewPerson model =
                                                             List.map (\groupName -> span [ class "badge", class "rounded-pill", class "text-bg-primary", class "me-1" ] [ text groupName ]) (List.sort (List.filterMap (\groupName -> Dict.get groupName groupNameMap) (Maybe.withDefault [] (Dict.get "memberOf" account.attributes))))
 
                                                         Nothing ->
-                                                            [ div [ class "placeholder-wave" ] [ span [ class "placeholder", class "rounded-pill", class "col-1" ] [] ] ]
+                                                            [ span [ class "placeholder", class "placeholder-wave", class "badge", class "rounded-pill", class "text-bg-secondary", class "text-secondary", class "me-1" ] [ text "robowrestling" ] ]
 
                                                 Nothing ->
                                                     []
@@ -2094,7 +2094,7 @@ viewPerson model =
                                                         Just (Ok entries) ->
                                                             case List.length entries of
                                                                 0 ->
-                                                                    [ div [] [ text "No accounts" ] ]
+                                                                    [ div [ class "text-secondary" ] [ text "No accounts" ] ]
 
                                                                 1 ->
                                                                     [ div [ class "mb-1" ] [ text "1 account" ] ]
@@ -2103,7 +2103,7 @@ viewPerson model =
                                                                     [ div [ class "mb-1" ] [ text (String.fromInt (List.length entries) ++ " accounts") ] ]
 
                                                         Nothing ->
-                                                            [ div [ class "placeholder-wave", class "mb-1" ] [ span [ class "placeholder", class "col-1" ] [] ] ]
+                                                            [ div [ class "placeholder-wave", class "mb-1", class "text-secondary" ] [ text "Loading..." ] ]
 
                                                 Nothing ->
                                                     []
@@ -2126,7 +2126,7 @@ viewPerson model =
                                                             ]
 
                                                         Nothing ->
-                                                            [ div [ class "placeholder-wave" ] [ span [ class "placeholder", class "rounded-pill", class "col-1" ] [] ] ]
+                                                            [ span [ class "placeholder", class "placeholder-wave", class "badge", class "rounded-pill", class "text-bg-secondary", class "text-secondary", class "me-1" ] [ text "affiliate" ] ]
 
                                                 Nothing ->
                                                     []
@@ -2151,10 +2151,10 @@ viewPerson model =
                                                             [ div [ class "mb-1" ] [ text "1 account" ] ]
 
                                                         Just (Ok Nothing) ->
-                                                            [ div [] [ text "No account" ] ]
+                                                            [ div [ class "text-secondary" ] [ text "No account" ] ]
 
                                                         Nothing ->
-                                                            [ div [ class "placeholder-wave", class "mb-1" ] [ span [ class "placeholder", class "col-1" ] [] ] ]
+                                                            [ div [ class "placeholder-wave", class "mb-1", class "text-secondary" ] [ text "Loading..." ] ]
 
                                                 Nothing ->
                                                     []
@@ -2176,7 +2176,7 @@ viewPerson model =
                                                             []
 
                                                         Nothing ->
-                                                            [ div [ class "placeholder-wave" ] [ span [ class "placeholder", class "rounded-pill", class "col-1" ] [] ] ]
+                                                            [ span [ class "placeholder", class "placeholder-wave", class "badge", class "rounded-pill", class "text-bg-secondary", class "text-secondary", class "me-1" ] [ text "disabled" ] ]
 
                                                 Nothing ->
                                                     []
@@ -2199,7 +2199,7 @@ viewPerson model =
                                                         Just (Ok entries) ->
                                                             case List.length entries of
                                                                 0 ->
-                                                                    [ div [] [ text "No entries" ] ]
+                                                                    [ div [ class "text-secondary" ] [ text "No entries" ] ]
 
                                                                 1 ->
                                                                     [ div [ class "mb-1" ] [ text "1 entry" ] ]
@@ -2208,7 +2208,7 @@ viewPerson model =
                                                                     [ div [ class "mb-1" ] [ text (String.fromInt (List.length entries) ++ " entries") ] ]
 
                                                         Nothing ->
-                                                            [ div [ class "placeholder-wave", class "mb-1" ] [ span [ class "placeholder", class "col-1" ] [] ] ]
+                                                            [ div [ class "placeholder-wave", class "mb-1", class "text-secondary" ] [ text "Loading..." ] ]
 
                                                 Nothing ->
                                                     []
@@ -2223,7 +2223,7 @@ viewPerson model =
                                                             [ div [] (List.map whitepagesEntryToEmployeeTypePill entries) ]
 
                                                         Nothing ->
-                                                            [ div [ class "placeholder-wave" ] [ span [ class "placeholder", class "rounded-pill", class "col-1" ] [] ] ]
+                                                            [ span [ class "placeholder", class "placeholder-wave", class "badge", class "rounded-pill", class "text-bg-secondary", class "text-secondary", class "me-1" ] [ text "Temporary Employee" ] ]
 
                                                 Nothing ->
                                                     []
@@ -2240,10 +2240,20 @@ viewPerson model =
                                     Just selectedUser ->
                                         case selectedUser.events of
                                             Just (Ok events) ->
-                                                List.map (eventToHtmlRow model.zone model.zoneName) (List.sortWith sortByEventTimestamp events)
+                                                if List.isEmpty events then
+                                                    [ tr [] [ td [ class "text-secondary", class "border-0" ] [ text "No events" ] ] ]
 
-                                            _ ->
+                                                else
+                                                    List.map (eventToHtmlRow model.zone model.zoneName) (List.sortWith sortByEventTimestamp events)
+
+                                            Just (Err _) ->
                                                 []
+
+                                            Nothing ->
+                                                [ eventRowPlaceholder
+                                                , eventRowPlaceholder
+                                                , eventRowPlaceholder
+                                                ]
 
                                     _ ->
                                         []
@@ -2412,6 +2422,16 @@ eventToHtmlRow zone zoneName event =
 sortByEventTimestamp : Event -> Event -> Order
 sortByEventTimestamp first second =
     compare (Time.posixToMillis second.eventTimestamp) (Time.posixToMillis first.eventTimestamp)
+
+
+eventRowPlaceholder : Html msg
+eventRowPlaceholder =
+    tr []
+        [ td [ style "width" "20%" ]
+            [ span [ class "placeholder", class "placeholder-wave", class "col-10", class "text-secondary" ] [] ]
+        , td []
+            [ span [ class "placeholder", class "placeholder-wave", class "col-7", class "text-secondary" ] [] ]
+        ]
 
 
 renderAppStatusBadge : AppStatusBadge -> Html msg
@@ -2799,7 +2819,7 @@ googleGroupsProvisioning model =
                     span [ class "text-secondary" ] [ text "Error loading Apiary account" ]
 
                 Nothing ->
-                    div [ class "mb-1", class "placeholder-wave" ] [ span [ class "placeholder", class "col-12" ] [] ]
+                    div [ class "mb-1", class "placeholder-wave", class "text-secondary" ] [ text "Loading..." ]
 
         Nothing ->
             text ""
@@ -3295,7 +3315,7 @@ sumsBillingGroupsProvisioning model =
                     [ span [ class "text-secondary" ] [ text "Error loading billing groups" ] ]
 
                 Nothing ->
-                    [ div [ class "mb-1", class "placeholder-wave" ] [ span [ class "placeholder", class "col-12" ] [] ] ]
+                    [ div [ class "mb-1", class "placeholder-wave", class "text-secondary" ] [ text "Loading..." ] ]
 
         Nothing ->
             [ text "" ]
