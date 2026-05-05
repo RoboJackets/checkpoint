@@ -1,0 +1,16 @@
+---
+alwaysApply: true
+---
+This is an administrative tool designed for expert end users. Prefer to show an error message rather than incomplete data. Render partial data as soon as possible even if the complete state of the UI is not loaded from the backend yet.
+
+Avoid layout shift where possible - if you know certain elements will be displayed, even if the exact styling is not known yet, render them in a loading state, ideally as close to the final rendered state as possible with respect to size and shape.
+
+Use only CSS that is available from the default build of Bootstrap v5. Bootstrap is loaded directly from a CDN, there is no build process, do not add one or otherwise modify CSS loading behavior. Do not add additional CSS style sheets. You may use inline style tags on specific elements if needed to adjust layout or minor style issues only.
+
+For directories (Apiary, Grouper, GTAD, GTED, Keycloak, Whitepages), some users will not have accounts within a given directory. You should explicitly indicate when that is the case, with text like "No account" or similar, and style the text with `text-secondary` so it is less prominent.
+
+When data is not available due to waiting on an API call or similar, explicitly indicate that using text like "Loading...", styled with `text-secondary` and `placeholder-wave`.
+
+For badges where the text content is not known yet, use the classes `placeholder`, `placeholder-wave`, `text-bg-secondary`, and `text-secondary`. Populate the badge with the longest likely text that will be returned from the backend.
+
+For badges where the text content is known but the styling is not, display the actual text with classes `placeholder`, `placeholder-wave`, `text-bg-secondary`. Do not style the text within the badge.
