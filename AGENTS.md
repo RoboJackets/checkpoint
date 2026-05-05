@@ -165,6 +165,12 @@ Then pass these env vars when starting the main Flask app:
 
 The mock returns empty results for all LDAP searches. In the UI, the Whitepages card shows "No entries" and the GTAD card renders without data (empty state). The `WHITEPAGES_HOST`, `WHITEPAGES_PORT`, `GTAD_HOST`, and `GTAD_PORT` config values default to the production hostnames and standard LDAP port when not set.
 
+### SQLite Database Setup
+
+The app expects an existing database at startup, located at `FLASK_DATABASE_LOCATION`. If it is not already present, or if there are database-related errors, run `poetry run flask --app checkpoint migrate` to create the database.
+
+You will also need to delete and recreate the database if there are schema changes made within the `migrate()` function.
+
 ### Keycloak Access Role
 
 To get past the "access denied" page, the logged-in user needs a **client role** named `access` on the `checkpoint` client in the `robojackets` realm. A protocol mapper named `checkpoint-roles` (type `oidc-usermodel-client-role-mapper`) must also exist on that client to include the role in the `roles` claim of the ID token. See the Keycloak setup steps above for the full configuration.
