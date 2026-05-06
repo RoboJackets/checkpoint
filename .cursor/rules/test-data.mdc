@@ -1,0 +1,16 @@
+---
+alwaysApply: true
+---
+Many features of the application require genuine GTED accounts to load data. You may use the following test data for demo purposes:
+
+First name: Kristaps
+
+Last name: Berzinch
+
+Username: kberzinch3
+
+Directory ID: 983D874CDD2041E4E6E3F1ABB3821058
+
+The username may be used for testing the "view person" experience.
+
+The first and/or last name may be used for testing the "search results" experience.

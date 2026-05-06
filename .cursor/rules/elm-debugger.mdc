@@ -1,0 +1,11 @@
+---
+alwaysApply: true
+---
+You may use the Elm debugger to inspect the state of the frontend application, view messages delivered to the Elm runtime, and step through browser interactions and API call responses.
+
+The Elm debugger is a blue square that appears in the bottom-right corner of the frontend when the Elm app is loaded. You can click on it to open the debugger in a popup window.
+
+You may pause the application by selecting any message from the left sidebar. You may resume the application by pressing the blue Play button in the top left.
+
+The Elm model is displayed in the right panel in the debugger. When a specific message is selected, and the application is paused, it shows the state of the model after that message was sent to the update function in the Elm application. The main browser window will show the state of the application after that message was received. You can use this feature to "time travel" and view previous states of the application. When a message is not selected, and the application is running normally, it shows the current state of the model.
+

@@ -14,3 +14,7 @@ When data is not available due to waiting on an API call or similar, explicitly 
 For badges where the text content is not known yet, use the classes `placeholder`, `placeholder-wave`, `text-bg-secondary`, and `text-secondary`. Populate the badge with the longest likely text that will be returned from the backend.
 
 For badges where the text content is known but the styling is not, display the actual text with classes `placeholder`, `placeholder-wave`, `text-bg-secondary`. Do not style the text within the badge.
+
+Within the UI, always include links to view the raw output of any backend API calls that are used to render data on the frontend.
+
+Include deeplinks to other services to view users whenever possible. Ask the user if this information is not provided up front.

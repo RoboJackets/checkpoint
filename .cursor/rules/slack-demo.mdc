@@ -1,0 +1,4 @@
+---
+alwaysApply: true
+---
+Do not attempt to record demos or perform any other integration tests for Slack features, including posting messages, modals, or other application features that depend on Slack or make Slack API calls.
