@@ -984,10 +984,9 @@ searchResultPlaceholder =
     div [ class "mb-4" ]
         [ h4 [ class "mb-1", class "placeholder-wave" ] [ span [ class "placeholder", class "col-2", class "me-1" ] [], span [ class "placeholder", class "col-3" ] [] ]
         , div [ class "mb-1", class "placeholder-wave" ] [ span [ class "placeholder", class "col-1", class "me-1" ] [], span [ class "placeholder", class "col-2" ] [] ]
-        , span [ class "badge", class "rounded-pill", class "me-1", class "placeholder", class "placeholder-wave", class "text-bg-secondary", class "text-secondary" ] [ text "STUDENT-UGRAD" ]
-        , span [ class "badge", class "rounded-pill", class "me-1", class "placeholder", class "placeholder-wave", class "text-bg-secondary", class "text-secondary" ] [ text "STUDENT-UGRAD" ]
-        , span [ class "badge", class "rounded-pill", class "me-1", class "placeholder", class "placeholder-wave", class "text-bg-secondary", class "text-secondary" ] [ text "STUDENT-UGRAD" ]
-        , span [ class "badge", class "rounded-pill", class "me-1", class "placeholder", class "placeholder-wave", class "text-bg-secondary", class "text-secondary" ] [ text "STUDENT-UGRAD" ]
+        , span [ class "badge", class "rounded-pill", class "me-1", class "placeholder", class "placeholder-wave", class "text-bg-secondary", class "text-secondary" ] [ text "former-employee-recent-3yr" ]
+        , span [ class "badge", class "rounded-pill", class "me-1", class "placeholder", class "placeholder-wave", class "text-bg-secondary", class "text-secondary" ] [ text "full-time-employee" ]
+        , span [ class "badge", class "rounded-pill", class "me-1", class "placeholder", class "placeholder-wave", class "text-bg-secondary", class "text-secondary" ] [ text "former-credit-student" ]
         ]
 
 
@@ -2031,7 +2030,7 @@ viewPerson model =
                                                             List.map (\groupName -> span [ class "badge", class "rounded-pill", class "text-bg-primary", class "me-1" ] [ text groupName ]) groups
 
                                                         Nothing ->
-                                                            [ span [ class "placeholder", class "placeholder-wave", class "badge", class "rounded-pill", class "text-bg-secondary", class "text-secondary", class "me-1" ] [ text "robowrestling" ] ]
+                                                            [ span [ class "placeholder", class "placeholder-wave", class "badge", class "rounded-pill", class "text-bg-secondary", class "text-secondary" ] [ text "robowrestling" ] ]
 
                                                 Nothing ->
                                                     []
@@ -2070,7 +2069,7 @@ viewPerson model =
                                                             List.map (\groupName -> span [ class "badge", class "rounded-pill", class "text-bg-primary", class "me-1" ] [ text groupName ]) (List.sort (List.filterMap (\groupName -> Dict.get groupName groupNameMap) (Maybe.withDefault [] (Dict.get "memberOf" account.attributes))))
 
                                                         Nothing ->
-                                                            [ span [ class "placeholder", class "placeholder-wave", class "badge", class "rounded-pill", class "text-bg-secondary", class "text-secondary", class "me-1" ] [ text "robowrestling" ] ]
+                                                            [ span [ class "placeholder", class "placeholder-wave", class "badge", class "rounded-pill", class "text-bg-secondary", class "text-secondary" ] [ text "robowrestling" ] ]
 
                                                 Nothing ->
                                                     []
@@ -2176,7 +2175,7 @@ viewPerson model =
                                                             []
 
                                                         Nothing ->
-                                                            [ span [ class "placeholder", class "placeholder-wave", class "badge", class "rounded-pill", class "text-bg-secondary", class "text-secondary", class "me-1" ] [ text "disabled" ] ]
+                                                            [ span [ class "placeholder", class "placeholder-wave", class "badge", class "rounded-pill", class "text-bg-secondary", class "text-secondary" ] [ text "disabled" ] ]
 
                                                 Nothing ->
                                                     []
@@ -2223,7 +2222,7 @@ viewPerson model =
                                                             [ div [] (List.map whitepagesEntryToEmployeeTypePill entries) ]
 
                                                         Nothing ->
-                                                            [ span [ class "placeholder", class "placeholder-wave", class "badge", class "rounded-pill", class "text-bg-secondary", class "text-secondary", class "me-1" ] [ text "Temporary Employee" ] ]
+                                                            [ span [ class "placeholder", class "placeholder-wave", class "badge", class "rounded-pill", class "text-bg-secondary", class "text-secondary", class "me-1" ] [ text "employee" ] ]
 
                                                 Nothing ->
                                                     []
@@ -2807,7 +2806,7 @@ googleGroupsProvisioning model =
 
                 Just (Ok Nothing) ->
                     if getGoogleWorkspacePrimaryEmail model == "" then
-                        span [ class "text-secondary" ] [ text "User does not have an Apiary account" ]
+                        span [ class "text-secondary" ] [ text "No Apiary account" ]
 
                     else
                         table [ class "table" ]
