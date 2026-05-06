@@ -2222,7 +2222,7 @@ viewPerson model =
                                                             [ div [] (List.map whitepagesEntryToEmployeeTypePill entries) ]
 
                                                         Nothing ->
-                                                            [ span [ class "placeholder", class "placeholder-wave", class "badge", class "rounded-pill", class "text-bg-secondary", class "text-secondary", class "me-1" ] [ text "employee" ] ]
+                                                            [ span [ class "placeholder", class "placeholder-wave", class "badge", class "rounded-pill", class "text-bg-secondary", class "text-secondary" ] [ text "employee" ] ]
 
                                                 Nothing ->
                                                     []
