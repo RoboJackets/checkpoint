@@ -210,21 +210,6 @@ type alias SumsBillingGroups =
     }
 
 
-type alias SelectedUser =
-    { directoryId : String
-    , whitepagesEntries : Maybe (Result Http.Error (List LdapEntry))
-    , gtedAccounts : Maybe (Result Http.Error (List GtedAccount))
-    , keycloakAccount : Maybe (Result Http.Error (Maybe KeycloakAccount))
-    , grouperMemberships : Maybe (Result Http.Error (List String))
-    , apiaryUser : Maybe (Result Http.Error (Maybe ApiaryUser))
-    , events : Maybe (Result Http.Error (List Event))
-    , googleGroups : Maybe (Result Http.Error AllGoogleAccountGroups)
-    , googleWorkspaceAccount : Maybe (Result Http.Error (Maybe GoogleWorkspaceAccount))
-    , gtadAccount : Maybe (Result Http.Error LdapEntry)
-    , sumsBillingGroups : Maybe (Result Http.Error SumsBillingGroups)
-    }
-
-
 type Route
     = SearchBox
     | ViewSearchResults (Maybe String)
@@ -240,7 +225,17 @@ type alias Model =
     , searchQuery : String
     , loadingSearchResults : Bool
     , searchResults : Maybe (Result Http.Error SearchResults)
-    , selectedUser : Maybe SelectedUser
+    , selectedDirectoryId : Maybe String
+    , whitepagesEntries : Maybe (Result Http.Error (List LdapEntry))
+    , gtedAccounts : Maybe (Result Http.Error (List GtedAccount))
+    , keycloakAccount : Maybe (Result Http.Error (Maybe KeycloakAccount))
+    , grouperMemberships : Maybe (Result Http.Error (List String))
+    , apiaryUser : Maybe (Result Http.Error (Maybe ApiaryUser))
+    , events : Maybe (Result Http.Error (List Event))
+    , googleGroups : Maybe (Result Http.Error AllGoogleAccountGroups)
+    , googleWorkspaceAccount : Maybe (Result Http.Error (Maybe GoogleWorkspaceAccount))
+    , gtadAccount : Maybe (Result Http.Error LdapEntry)
+    , sumsBillingGroups : Maybe (Result Http.Error SumsBillingGroups)
     , keycloakDeepLinkBaseUrl : String
     , apiaryBaseUrl : String
     , zone : Time.Zone
@@ -376,20 +371,34 @@ update msg model =
             )
 
         SearchResultsReceived result ->
-            ( { model
-                | searchResults = Just result
-                , loadingSearchResults = False
-                , selectedUser =
+            let
+                exactMatchDirectoryId : Maybe String
+                exactMatchDirectoryId =
                     case result of
                         Ok searchResults ->
                             if searchResults.exactMatch && List.length searchResults.results == 1 then
-                                Just { directoryId = (Maybe.withDefault { directoryId = "", givenName = "", surname = "", title = Nothing, titleIsAuthoritative = True, organizationalUnit = Nothing, primaryAffiliation = Nothing, affiliations = [] } (List.head searchResults.results)).directoryId, whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, grouperMemberships = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing, gtadAccount = Nothing, sumsBillingGroups = Nothing }
+                                Maybe.map .directoryId (List.head searchResults.results)
 
                             else
                                 Nothing
 
                         Err _ ->
                             Nothing
+            in
+            ( { model
+                | searchResults = Just result
+                , loadingSearchResults = False
+                , selectedDirectoryId = exactMatchDirectoryId
+                , whitepagesEntries = Nothing
+                , gtedAccounts = Nothing
+                , keycloakAccount = Nothing
+                , grouperMemberships = Nothing
+                , apiaryUser = Nothing
+                , events = Nothing
+                , googleGroups = Nothing
+                , googleWorkspaceAccount = Nothing
+                , gtadAccount = Nothing
+                , sumsBillingGroups = Nothing
               }
             , case result of
                 Ok searchResults ->
@@ -404,134 +413,34 @@ update msg model =
             )
 
         WhitepagesEntriesReceived result ->
-            ( { model
-                | selectedUser =
-                    case model.selectedUser of
-                        Just selectedUser ->
-                            Just { selectedUser | whitepagesEntries = Just result }
-
-                        Nothing ->
-                            Nothing
-              }
-            , Cmd.none
-            )
+            ( { model | whitepagesEntries = Just result }, Cmd.none )
 
         GtedAccountsReceived result ->
-            ( { model
-                | selectedUser =
-                    case model.selectedUser of
-                        Just selectedUser ->
-                            Just { selectedUser | gtedAccounts = Just result }
-
-                        Nothing ->
-                            Nothing
-              }
-            , Cmd.none
-            )
+            ( { model | gtedAccounts = Just result }, Cmd.none )
 
         KeycloakAccountReceived result ->
-            ( { model
-                | selectedUser =
-                    case model.selectedUser of
-                        Just selectedUser ->
-                            Just { selectedUser | keycloakAccount = Just result }
-
-                        Nothing ->
-                            Nothing
-              }
-            , Cmd.none
-            )
+            ( { model | keycloakAccount = Just result }, Cmd.none )
 
         GrouperMembershipsReceived result ->
-            ( { model
-                | selectedUser =
-                    case model.selectedUser of
-                        Just selectedUser ->
-                            Just { selectedUser | grouperMemberships = Just result }
-
-                        Nothing ->
-                            Nothing
-              }
-            , Cmd.none
-            )
+            ( { model | grouperMemberships = Just result }, Cmd.none )
 
         ApiaryUserReceived result ->
-            ( { model
-                | selectedUser =
-                    case model.selectedUser of
-                        Just selectedUser ->
-                            Just { selectedUser | apiaryUser = Just result }
-
-                        Nothing ->
-                            Nothing
-              }
-            , Cmd.none
-            )
+            ( { model | apiaryUser = Just result }, Cmd.none )
 
         EventsReceived result ->
-            ( { model
-                | selectedUser =
-                    case model.selectedUser of
-                        Just selectedUser ->
-                            Just { selectedUser | events = Just result }
-
-                        Nothing ->
-                            Nothing
-              }
-            , Cmd.none
-            )
+            ( { model | events = Just result }, Cmd.none )
 
         GoogleGroupsReceived result ->
-            ( { model
-                | selectedUser =
-                    case model.selectedUser of
-                        Just selectedUser ->
-                            Just { selectedUser | googleGroups = Just result }
-
-                        Nothing ->
-                            Nothing
-              }
-            , Cmd.none
-            )
+            ( { model | googleGroups = Just result }, Cmd.none )
 
         GoogleWorkspaceAccountReceived result ->
-            ( { model
-                | selectedUser =
-                    case model.selectedUser of
-                        Just selectedUser ->
-                            Just { selectedUser | googleWorkspaceAccount = Just result }
-
-                        Nothing ->
-                            Nothing
-              }
-            , Cmd.none
-            )
+            ( { model | googleWorkspaceAccount = Just result }, Cmd.none )
 
         GtadAccountReceived result ->
-            ( { model
-                | selectedUser =
-                    case model.selectedUser of
-                        Just selectedUser ->
-                            Just { selectedUser | gtadAccount = Just result }
-
-                        Nothing ->
-                            Nothing
-              }
-            , Cmd.none
-            )
+            ( { model | gtadAccount = Just result }, Cmd.none )
 
         SumsBillingGroupsReceived result ->
-            ( { model
-                | selectedUser =
-                    case model.selectedUser of
-                        Just selectedUser ->
-                            Just { selectedUser | sumsBillingGroups = Just result }
-
-                        Nothing ->
-                            Nothing
-              }
-            , Cmd.none
-            )
+            ( { model | sumsBillingGroups = Just result }, Cmd.none )
 
         NoOpMsg ->
             ( model, Cmd.none )
@@ -549,17 +458,32 @@ update msg model =
                     )
 
         UrlChanged url ->
+            let
+                newRoute : Maybe Route
+                newRoute =
+                    Url.Parser.parse urlParser url
+            in
             ( { model
-                | route = Url.Parser.parse urlParser url
-                , selectedUser =
-                    case Url.Parser.parse urlParser url of
+                | route = newRoute
+                , selectedDirectoryId =
+                    case newRoute of
                         Just (ViewPerson directoryId) ->
-                            Just { directoryId = directoryId, whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, grouperMemberships = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing, gtadAccount = Nothing, sumsBillingGroups = Nothing }
+                            Just directoryId
 
                         _ ->
                             Nothing
+                , whitepagesEntries = Nothing
+                , gtedAccounts = Nothing
+                , keycloakAccount = Nothing
+                , grouperMemberships = Nothing
+                , apiaryUser = Nothing
+                , events = Nothing
+                , googleGroups = Nothing
+                , googleWorkspaceAccount = Nothing
+                , gtadAccount = Nothing
+                , sumsBillingGroups = Nothing
               }
-            , case Url.Parser.parse urlParser url of
+            , case newRoute of
                 Just SearchBox ->
                     Task.attempt (\_ -> NoOpMsg) (focus "search")
 
@@ -635,52 +559,49 @@ urlUnparser route =
 
 buildInitialModel : Value -> Url.Url -> Nav.Key -> Model
 buildInitialModel serverData url navKey =
-    Model
-        navKey
-        (Url.Parser.parse urlParser url)
-        (String.trim (Result.withDefault "" (decodeValue (at [ "username" ] string) serverData)))
-        (Result.withDefault Dict.empty (decodeValue (at [ "majors" ] (Json.Decode.dict (nullable string))) serverData))
-        (Result.withDefault [] (decodeValue (at [ "grouperGroups" ] (Json.Decode.list string)) serverData))
-        (case Url.Parser.parse urlParser url of
+    { navKey = navKey
+    , route = Url.Parser.parse urlParser url
+    , loggedInUsername = String.trim (Result.withDefault "" (decodeValue (at [ "username" ] string) serverData))
+    , majors = Result.withDefault Dict.empty (decodeValue (at [ "majors" ] (Json.Decode.dict (nullable string))) serverData)
+    , grouperGroups = Result.withDefault [] (decodeValue (at [ "grouperGroups" ] (Json.Decode.list string)) serverData)
+    , searchQuery =
+        case Url.Parser.parse urlParser url of
             Just (ViewSearchResults query) ->
                 Maybe.withDefault "" query
 
             _ ->
                 ""
-        )
-        (case Url.Parser.parse urlParser url of
+    , loadingSearchResults =
+        case Url.Parser.parse urlParser url of
             Just (ViewSearchResults (Just searchQuery)) ->
                 String.trim searchQuery /= ""
 
             _ ->
                 False
-        )
-        Nothing
-        (case Url.Parser.parse urlParser url of
+    , searchResults = Nothing
+    , selectedDirectoryId =
+        case Url.Parser.parse urlParser url of
             Just (ViewPerson directoryId) ->
-                Just
-                    (SelectedUser
-                        directoryId
-                        Nothing
-                        Nothing
-                        Nothing
-                        Nothing
-                        Nothing
-                        Nothing
-                        Nothing
-                        Nothing
-                        Nothing
-                        Nothing
-                    )
+                Just directoryId
 
             _ ->
                 Nothing
-        )
-        (String.trim (Result.withDefault "" (decodeValue (at [ "keycloakDeepLinkBaseUrl" ] string) serverData)))
-        (String.trim (Result.withDefault "" (decodeValue (at [ "apiaryBaseUrl" ] string) serverData)))
-        Time.utc
-        (Time.Name "UTC")
-        (Time.millisToPosix 0)
+    , whitepagesEntries = Nothing
+    , gtedAccounts = Nothing
+    , keycloakAccount = Nothing
+    , grouperMemberships = Nothing
+    , apiaryUser = Nothing
+    , events = Nothing
+    , googleGroups = Nothing
+    , googleWorkspaceAccount = Nothing
+    , gtadAccount = Nothing
+    , sumsBillingGroups = Nothing
+    , keycloakDeepLinkBaseUrl = String.trim (Result.withDefault "" (decodeValue (at [ "keycloakDeepLinkBaseUrl" ] string) serverData))
+    , apiaryBaseUrl = String.trim (Result.withDefault "" (decodeValue (at [ "apiaryBaseUrl" ] string) serverData))
+    , zone = Time.utc
+    , zoneName = Time.Name "UTC"
+    , time = Time.millisToPosix 0
+    }
 
 
 searchResultsResponseDecoder : Decoder SearchResults
@@ -1125,13 +1046,13 @@ filterMatchingDirectoryId selectedDirectoryId thisResult =
 
 getSelectedPersonGivenName : Model -> Maybe String
 getSelectedPersonGivenName model =
-    case model.selectedUser of
-        Just selectedUser ->
+    case model.selectedDirectoryId of
+        Just directoryId ->
             case model.searchResults of
                 Just result ->
                     case result of
                         Ok searchResults ->
-                            case List.head (List.filter (filterMatchingDirectoryId selectedUser.directoryId) searchResults.results) of
+                            case List.head (List.filter (filterMatchingDirectoryId directoryId) searchResults.results) of
                                 Just matchedResult ->
                                     Just matchedResult.givenName
 
@@ -1142,7 +1063,7 @@ getSelectedPersonGivenName model =
                             Nothing
 
                 Nothing ->
-                    case selectedUser.gtedAccounts of
+                    case model.gtedAccounts of
                         Just result ->
                             case result of
                                 Ok accounts ->
@@ -1165,13 +1086,13 @@ getSelectedPersonGivenName model =
 
 getSelectedPersonSurname : Model -> Maybe String
 getSelectedPersonSurname model =
-    case model.selectedUser of
-        Just selectedUser ->
+    case model.selectedDirectoryId of
+        Just directoryId ->
             case model.searchResults of
                 Just result ->
                     case result of
                         Ok searchResults ->
-                            case List.head (List.filter (filterMatchingDirectoryId selectedUser.directoryId) searchResults.results) of
+                            case List.head (List.filter (filterMatchingDirectoryId directoryId) searchResults.results) of
                                 Just matchedResult ->
                                     Just matchedResult.surname
 
@@ -1182,7 +1103,7 @@ getSelectedPersonSurname model =
                             Nothing
 
                 Nothing ->
-                    case selectedUser.gtedAccounts of
+                    case model.gtedAccounts of
                         Just result ->
                             case result of
                                 Ok accounts ->
@@ -1235,9 +1156,9 @@ orElseLazy fallback maybeValue =
 
 matchedSearchResult : Model -> Maybe SearchResult
 matchedSearchResult model =
-    case ( model.selectedUser, model.searchResults ) of
-        ( Just selectedUser, Just (Ok searchResults) ) ->
-            List.head (List.filter (filterMatchingDirectoryId selectedUser.directoryId) searchResults.results)
+    case ( model.selectedDirectoryId, model.searchResults ) of
+        ( Just directoryId, Just (Ok searchResults) ) ->
+            List.head (List.filter (filterMatchingDirectoryId directoryId) searchResults.results)
 
         _ ->
             Nothing
@@ -1245,44 +1166,19 @@ matchedSearchResult model =
 
 primaryWhitepagesAttribute : String -> Model -> Maybe String
 primaryWhitepagesAttribute attributeName model =
-    case model.selectedUser of
-        Just selectedUser ->
-            case selectedUser.whitepagesEntries of
-                Just (Ok entries) ->
-                    let
-                        chosenEntry : Maybe LdapEntry
-                        chosenEntry =
-                            if List.length entries == 1 then
-                                List.head entries
+    case model.whitepagesEntries of
+        Just (Ok entries) ->
+            let
+                chosenEntry : Maybe LdapEntry
+                chosenEntry =
+                    if List.length entries == 1 then
+                        List.head entries
 
-                            else
-                                List.head (List.filter ignoreSecondaryWhitepagesEntry entries)
-                    in
-                    case chosenEntry of
-                        Just entry ->
-                            case Dict.get attributeName entry.attributes of
-                                Just attributeList ->
-                                    List.head attributeList
-
-                                Nothing ->
-                                    Nothing
-
-                        Nothing ->
-                            Nothing
-
-                _ ->
-                    Nothing
-
-        Nothing ->
-            Nothing
-
-
-gtadAttribute : String -> Model -> Maybe String
-gtadAttribute attributeName model =
-    case model.selectedUser of
-        Just selectedUser ->
-            case selectedUser.gtadAccount of
-                Just (Ok entry) ->
+                    else
+                        List.head (List.filter ignoreSecondaryWhitepagesEntry entries)
+            in
+            case chosenEntry of
+                Just entry ->
                     case Dict.get attributeName entry.attributes of
                         Just attributeList ->
                             List.head attributeList
@@ -1290,10 +1186,25 @@ gtadAttribute attributeName model =
                         Nothing ->
                             Nothing
 
-                _ ->
+                Nothing ->
                     Nothing
 
-        Nothing ->
+        _ ->
+            Nothing
+
+
+gtadAttribute : String -> Model -> Maybe String
+gtadAttribute attributeName model =
+    case model.gtadAccount of
+        Just (Ok entry) ->
+            case Dict.get attributeName entry.attributes of
+                Just attributeList ->
+                    List.head attributeList
+
+                Nothing ->
+                    Nothing
+
+        _ ->
             Nothing
 
 
@@ -1341,26 +1252,21 @@ lookupOrganizationalUnit majors ou =
 
 ouFromGtedCurriculum : Model -> Maybe String
 ouFromGtedCurriculum model =
-    case model.selectedUser of
-        Just selectedUser ->
-            case selectedUser.gtedAccounts of
-                Just (Ok accounts) ->
-                    case List.head accounts of
-                        Just account ->
-                            case List.head (List.filter filterSimpleGtCurriculum account.gtCurriculum) of
-                                Just curriculum ->
-                                    List.head (List.reverse (String.split "/" curriculum))
-
-                                Nothing ->
-                                    Nothing
+    case model.gtedAccounts of
+        Just (Ok accounts) ->
+            case List.head accounts of
+                Just account ->
+                    case List.head (List.filter filterSimpleGtCurriculum account.gtCurriculum) of
+                        Just curriculum ->
+                            List.head (List.reverse (String.split "/" curriculum))
 
                         Nothing ->
                             Nothing
 
-                _ ->
+                Nothing ->
                     Nothing
 
-        Nothing ->
+        _ ->
             Nothing
 
 
@@ -1488,9 +1394,9 @@ viewPerson model =
     , body =
         [ renderNavbar model
         , div [ class "container", style "max-width" "64rem", style "margin-top" "5rem" ]
-            ((case model.selectedUser of
-                Just selectedUser ->
-                    case selectedUser.gtedAccounts of
+            ((case model.selectedDirectoryId of
+                Just _ ->
+                    case model.gtedAccounts of
                         Just (Err (BadStatus 404)) ->
                             [ div [ class "alert", class "alert-danger" ]
                                 [ text "The provided directory ID was not found in GTED. Check the URL."
@@ -1527,9 +1433,9 @@ viewPerson model =
                 Nothing ->
                     []
              )
-                ++ (case model.selectedUser of
-                        Just selectedUser ->
-                            case selectedUser.whitepagesEntries of
+                ++ (case model.selectedDirectoryId of
+                        Just _ ->
+                            case model.whitepagesEntries of
                                 Just (Err (BadStatus 404)) ->
                                     []
 
@@ -1563,9 +1469,9 @@ viewPerson model =
                         Nothing ->
                             []
                    )
-                ++ (case model.selectedUser of
-                        Just selectedUser ->
-                            case selectedUser.keycloakAccount of
+                ++ (case model.selectedDirectoryId of
+                        Just _ ->
+                            case model.keycloakAccount of
                                 Just (Err (BadStatus 404)) ->
                                     []
 
@@ -1599,9 +1505,9 @@ viewPerson model =
                         Nothing ->
                             []
                    )
-                ++ (case model.selectedUser of
-                        Just selectedUser ->
-                            case selectedUser.apiaryUser of
+                ++ (case model.selectedDirectoryId of
+                        Just _ ->
+                            case model.apiaryUser of
                                 Just (Err (BadStatus 404)) ->
                                     []
 
@@ -1635,9 +1541,9 @@ viewPerson model =
                         Nothing ->
                             []
                    )
-                ++ (case model.selectedUser of
-                        Just selectedUser ->
-                            case selectedUser.events of
+                ++ (case model.selectedDirectoryId of
+                        Just _ ->
+                            case model.events of
                                 Just (Err (BadStatus 404)) ->
                                     []
 
@@ -1672,9 +1578,9 @@ viewPerson model =
                             []
                    )
                 ++ -- show name
-                   (case model.selectedUser of
-                        Just selectedUser ->
-                            case selectedUser.gtedAccounts of
+                   (case model.selectedDirectoryId of
+                        Just _ ->
+                            case model.gtedAccounts of
                                 Just (Err _) ->
                                     []
 
@@ -1694,9 +1600,9 @@ viewPerson model =
                    (let
                         titleIsLoading : Bool
                         titleIsLoading =
-                            case model.selectedUser of
-                                Just selectedUser ->
-                                    case selectedUser.gtedAccounts of
+                            case model.selectedDirectoryId of
+                                Just _ ->
+                                    case model.gtedAccounts of
                                         Just (Err (BadStatus 404)) ->
                                             False
 
@@ -1706,7 +1612,7 @@ viewPerson model =
                                                     False
 
                                                 Nothing ->
-                                                    case selectedUser.whitepagesEntries of
+                                                    case model.whitepagesEntries of
                                                         Just (Ok []) ->
                                                             False
 
@@ -1718,9 +1624,9 @@ viewPerson model =
 
                         organizationalUnitIsLoading : Bool
                         organizationalUnitIsLoading =
-                            case model.selectedUser of
-                                Just selectedUser ->
-                                    case selectedUser.gtedAccounts of
+                            case model.selectedDirectoryId of
+                                Just _ ->
+                                    case model.gtedAccounts of
                                         Just (Err (BadStatus 404)) ->
                                             False
 
@@ -1730,9 +1636,9 @@ viewPerson model =
                                                     False
 
                                                 Nothing ->
-                                                    case selectedUser.whitepagesEntries of
+                                                    case model.whitepagesEntries of
                                                         Just (Ok []) ->
-                                                            case selectedUser.gtedAccounts of
+                                                            case model.gtedAccounts of
                                                                 Just _ ->
                                                                     False
 
@@ -1826,7 +1732,7 @@ viewPerson model =
                             [ div [ class "card" ]
                                 [ div [ class "card-body" ]
                                     [ h6 [] [ text "Google Groups" ]
-                                    , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, grouperMemberships = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing, gtadAccount = Nothing, sumsBillingGroups = Nothing } model.selectedUser).directoryId, "google-groups" ] []), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View raw" ]
+                                    , a [ target "_blank", href (Url.Builder.absolute [ "view", Maybe.withDefault "" model.selectedDirectoryId, "google-groups" ] []), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View raw" ]
                                     , table [ class "table", class "table-borderless", class "m-0" ]
                                         [ tbody []
                                             [ tr []
@@ -1850,7 +1756,7 @@ viewPerson model =
                                 [ div [ class "card-body" ]
                                     [ h6 [] [ text "Google Workspace" ]
                                     , a [ target "_blank", href ("https://www.google.com/a/robojackets.org/ServiceLogin?continue=https://admin.google.com/ac/search?query=" ++ getGoogleWorkspacePrimaryEmail model), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View in Google Workspace" ]
-                                    , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, grouperMemberships = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing, gtadAccount = Nothing, sumsBillingGroups = Nothing } model.selectedUser).directoryId, "google-workspace" ] []), class "position-absolute", style "top" "36px", style "right" "14px" ] [ text "View raw" ]
+                                    , a [ target "_blank", href (Url.Builder.absolute [ "view", Maybe.withDefault "" model.selectedDirectoryId, "google-workspace" ] []), class "position-absolute", style "top" "36px", style "right" "14px" ] [ text "View raw" ]
                                     , table [ class "table", class "table-borderless", class "m-0" ]
                                         [ tbody []
                                             [ tr []
@@ -1879,7 +1785,7 @@ viewPerson model =
                             [ div [ class "card" ]
                                 [ div [ class "card-body" ]
                                     [ h6 [] [ text "SUMS" ]
-                                    , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, grouperMemberships = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing, gtadAccount = Nothing, sumsBillingGroups = Nothing } model.selectedUser).directoryId, "sums" ] []), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View raw" ]
+                                    , a [ target "_blank", href (Url.Builder.absolute [ "view", Maybe.withDefault "" model.selectedDirectoryId, "sums" ] []), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View raw" ]
                                     , table [ class "table", class "table-borderless", class "m-0" ]
                                         [ tbody []
                                             [ tr []
@@ -1907,11 +1813,11 @@ viewPerson model =
                                 [ div [ class "card-body" ]
                                     ([ h6 [] [ text "Apiary" ]
                                      , a [ target "_blank", href (model.apiaryBaseUrl ++ "/nova/resources/users/" ++ getApiaryUserId model), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View in Apiary" ]
-                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, grouperMemberships = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing, gtadAccount = Nothing, sumsBillingGroups = Nothing } model.selectedUser).directoryId, "apiary" ] []), class "position-absolute", style "top" "36px", style "right" "14px" ] [ text "View raw" ]
+                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", Maybe.withDefault "" model.selectedDirectoryId, "apiary" ] []), class "position-absolute", style "top" "36px", style "right" "14px" ] [ text "View raw" ]
                                      ]
-                                        ++ (case model.selectedUser of
-                                                Just selectedUser ->
-                                                    case selectedUser.apiaryUser of
+                                        ++ (case model.selectedDirectoryId of
+                                                Just _ ->
+                                                    case model.apiaryUser of
                                                         Just (Err _) ->
                                                             []
 
@@ -1927,9 +1833,9 @@ viewPerson model =
                                                 Nothing ->
                                                     []
                                            )
-                                        ++ (case model.selectedUser of
-                                                Just selectedUser ->
-                                                    case selectedUser.apiaryUser of
+                                        ++ (case model.selectedDirectoryId of
+                                                Just _ ->
+                                                    case model.apiaryUser of
                                                         Just (Err _) ->
                                                             []
 
@@ -1995,11 +1901,11 @@ viewPerson model =
                                 [ div [ class "card-body" ]
                                     ([ h6 [] [ text "Grouper" ]
                                      , a [ target "_blank", href ("https://grouper.gatech.edu/grouper/grouperUi/app/UiV2Main.index?operation=UiV2Subject.viewSubject&subjectId=" ++ getPrimaryUsername model ++ "&sourceId=gted-accounts"), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View in Grouper" ]
-                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, grouperMemberships = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing, gtadAccount = Nothing, sumsBillingGroups = Nothing } model.selectedUser).directoryId, "grouper" ] []), class "position-absolute", style "top" "36px", style "right" "14px" ] [ text "View raw" ]
+                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", Maybe.withDefault "" model.selectedDirectoryId, "grouper" ] []), class "position-absolute", style "top" "36px", style "right" "14px" ] [ text "View raw" ]
                                      ]
-                                        ++ (case model.selectedUser of
-                                                Just selectedUser ->
-                                                    case selectedUser.grouperMemberships of
+                                        ++ (case model.selectedDirectoryId of
+                                                Just _ ->
+                                                    case model.grouperMemberships of
                                                         Just (Err _) ->
                                                             []
 
@@ -2020,9 +1926,9 @@ viewPerson model =
                                                 Nothing ->
                                                     []
                                            )
-                                        ++ (case model.selectedUser of
-                                                Just selectedUser ->
-                                                    case selectedUser.grouperMemberships of
+                                        ++ (case model.selectedDirectoryId of
+                                                Just _ ->
+                                                    case model.grouperMemberships of
                                                         Just (Err _) ->
                                                             []
 
@@ -2042,11 +1948,11 @@ viewPerson model =
                             [ div [ class "card" ]
                                 [ div [ class "card-body" ]
                                     ([ h6 [] [ text "GTAD" ]
-                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, grouperMemberships = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing, gtadAccount = Nothing, sumsBillingGroups = Nothing } model.selectedUser).directoryId, "gtad" ] []), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View raw" ]
+                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", Maybe.withDefault "" model.selectedDirectoryId, "gtad" ] []), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View raw" ]
                                      ]
-                                        ++ (case model.selectedUser of
-                                                Just selectedUser ->
-                                                    case selectedUser.gtadAccount of
+                                        ++ (case model.selectedDirectoryId of
+                                                Just _ ->
+                                                    case model.gtadAccount of
                                                         Just (Err _) ->
                                                             []
 
@@ -2059,9 +1965,9 @@ viewPerson model =
                                                 Nothing ->
                                                     []
                                            )
-                                        ++ (case model.selectedUser of
-                                                Just selectedUser ->
-                                                    case selectedUser.gtadAccount of
+                                        ++ (case model.selectedDirectoryId of
+                                                Just _ ->
+                                                    case model.gtadAccount of
                                                         Just (Err _) ->
                                                             []
 
@@ -2081,12 +1987,12 @@ viewPerson model =
                             [ div [ class "card" ]
                                 [ div [ class "card-body" ]
                                     ([ h6 [] [ text "GTED" ]
-                                     , a [ target "_blank", href ("https://iat.gatech.edu/prod/person/" ++ (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, grouperMemberships = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing, gtadAccount = Nothing, sumsBillingGroups = Nothing } model.selectedUser).directoryId), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View in IAT" ]
-                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, grouperMemberships = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing, gtadAccount = Nothing, sumsBillingGroups = Nothing } model.selectedUser).directoryId, "gted" ] []), class "position-absolute", style "top" "36px", style "right" "14px" ] [ text "View raw" ]
+                                     , a [ target "_blank", href ("https://iat.gatech.edu/prod/person/" ++ Maybe.withDefault "" model.selectedDirectoryId), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View in IAT" ]
+                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", Maybe.withDefault "" model.selectedDirectoryId, "gted" ] []), class "position-absolute", style "top" "36px", style "right" "14px" ] [ text "View raw" ]
                                      ]
-                                        ++ (case model.selectedUser of
-                                                Just selectedUser ->
-                                                    case selectedUser.gtedAccounts of
+                                        ++ (case model.selectedDirectoryId of
+                                                Just _ ->
+                                                    case model.gtedAccounts of
                                                         Just (Err _) ->
                                                             []
 
@@ -2107,9 +2013,9 @@ viewPerson model =
                                                 Nothing ->
                                                     []
                                            )
-                                        ++ (case model.selectedUser of
-                                                Just selectedUser ->
-                                                    case selectedUser.gtedAccounts of
+                                        ++ (case model.selectedDirectoryId of
+                                                Just _ ->
+                                                    case model.gtedAccounts of
                                                         Just (Err _) ->
                                                             []
 
@@ -2138,11 +2044,11 @@ viewPerson model =
                                 [ div [ class "card-body" ]
                                     ([ h6 [] [ text "Keycloak" ]
                                      , a [ target "_blank", href (model.keycloakDeepLinkBaseUrl ++ getKeycloakUserId model ++ "/settings"), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View in Keycloak" ]
-                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, grouperMemberships = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing, gtadAccount = Nothing, sumsBillingGroups = Nothing } model.selectedUser).directoryId, "keycloak" ] []), class "position-absolute", style "top" "36px", style "right" "14px" ] [ text "View raw" ]
+                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", Maybe.withDefault "" model.selectedDirectoryId, "keycloak" ] []), class "position-absolute", style "top" "36px", style "right" "14px" ] [ text "View raw" ]
                                      ]
-                                        ++ (case model.selectedUser of
-                                                Just selectedUser ->
-                                                    case selectedUser.keycloakAccount of
+                                        ++ (case model.selectedDirectoryId of
+                                                Just _ ->
+                                                    case model.keycloakAccount of
                                                         Just (Err _) ->
                                                             []
 
@@ -2158,9 +2064,9 @@ viewPerson model =
                                                 Nothing ->
                                                     []
                                            )
-                                        ++ (case model.selectedUser of
-                                                Just selectedUser ->
-                                                    case selectedUser.keycloakAccount of
+                                        ++ (case model.selectedDirectoryId of
+                                                Just _ ->
+                                                    case model.keycloakAccount of
                                                         Just (Err _) ->
                                                             []
 
@@ -2187,11 +2093,11 @@ viewPerson model =
                             [ div [ class "card" ]
                                 [ div [ class "card-body" ]
                                     ([ h6 [] [ text "Whitepages" ]
-                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", (Maybe.withDefault { directoryId = "", whitepagesEntries = Nothing, gtedAccounts = Nothing, keycloakAccount = Nothing, grouperMemberships = Nothing, apiaryUser = Nothing, events = Nothing, googleGroups = Nothing, googleWorkspaceAccount = Nothing, gtadAccount = Nothing, sumsBillingGroups = Nothing } model.selectedUser).directoryId, "whitepages" ] []), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View raw" ]
+                                     , a [ target "_blank", href (Url.Builder.absolute [ "view", Maybe.withDefault "" model.selectedDirectoryId, "whitepages" ] []), class "position-absolute", style "top" "14px", style "right" "14px" ] [ text "View raw" ]
                                      ]
-                                        ++ (case model.selectedUser of
-                                                Just selectedUser ->
-                                                    case selectedUser.whitepagesEntries of
+                                        ++ (case model.selectedDirectoryId of
+                                                Just _ ->
+                                                    case model.whitepagesEntries of
                                                         Just (Err _) ->
                                                             []
 
@@ -2212,9 +2118,9 @@ viewPerson model =
                                                 Nothing ->
                                                     []
                                            )
-                                        ++ (case model.selectedUser of
-                                                Just selectedUser ->
-                                                    case selectedUser.whitepagesEntries of
+                                        ++ (case model.selectedDirectoryId of
+                                                Just _ ->
+                                                    case model.whitepagesEntries of
                                                         Just (Err _) ->
                                                             []
 
@@ -2235,9 +2141,9 @@ viewPerson model =
                    , div [ class "row" ]
                         [ table [ class "table" ]
                             [ tbody []
-                                (case model.selectedUser of
-                                    Just selectedUser ->
-                                        case selectedUser.events of
+                                (case model.selectedDirectoryId of
+                                    Just _ ->
+                                        case model.events of
                                             Just (Ok events) ->
                                                 if List.isEmpty events then
                                                     [ tr [] [ td [ class "text-secondary", class "border-0" ] [ text "No events" ] ] ]
@@ -2267,18 +2173,13 @@ viewPerson model =
 
 getPrimaryUsername : Model -> String
 getPrimaryUsername model =
-    case model.selectedUser of
-        Just selectedUser ->
-            case selectedUser.gtedAccounts of
-                Just (Ok accounts) ->
-                    case List.head accounts of
-                        Just account ->
-                            account.gtPrimaryGTAccountUsername
+    case model.gtedAccounts of
+        Just (Ok accounts) ->
+            case List.head accounts of
+                Just account ->
+                    account.gtPrimaryGTAccountUsername
 
-                        Nothing ->
-                            ""
-
-                _ ->
+                Nothing ->
                     ""
 
         _ ->
@@ -2287,14 +2188,9 @@ getPrimaryUsername model =
 
 getKeycloakUserId : Model -> String
 getKeycloakUserId model =
-    case model.selectedUser of
-        Just selectedUser ->
-            case selectedUser.keycloakAccount of
-                Just (Ok (Just keycloakAccount)) ->
-                    keycloakAccount.id
-
-                _ ->
-                    ""
+    case model.keycloakAccount of
+        Just (Ok (Just keycloakAccount)) ->
+            keycloakAccount.id
 
         _ ->
             ""
@@ -2302,14 +2198,9 @@ getKeycloakUserId model =
 
 getGoogleWorkspacePrimaryEmail : Model -> String
 getGoogleWorkspacePrimaryEmail model =
-    case model.selectedUser of
-        Just selectedUser ->
-            case selectedUser.googleWorkspaceAccount of
-                Just (Ok (Just googleWorkspaceAccount)) ->
-                    googleWorkspaceAccount.primaryEmail
-
-                _ ->
-                    ""
+    case model.googleWorkspaceAccount of
+        Just (Ok (Just googleWorkspaceAccount)) ->
+            googleWorkspaceAccount.primaryEmail
 
         _ ->
             ""
@@ -2317,14 +2208,9 @@ getGoogleWorkspacePrimaryEmail model =
 
 getApiaryUserId : Model -> String
 getApiaryUserId model =
-    case model.selectedUser of
-        Just selectedUser ->
-            case selectedUser.apiaryUser of
-                Just (Ok (Just apiaryUser)) ->
-                    apiaryUser.id
-
-                _ ->
-                    ""
+    case model.apiaryUser of
+        Just (Ok (Just apiaryUser)) ->
+            apiaryUser.id
 
         _ ->
             ""
@@ -2517,9 +2403,9 @@ renderAppStatusBadge badge =
 
 membershipActiveBadge : Model -> Html msg
 membershipActiveBadge model =
-    case model.selectedUser of
-        Just user ->
-            case user.apiaryUser of
+    case model.selectedDirectoryId of
+        Just _ ->
+            case model.apiaryUser of
                 Just (Ok (Just apiaryUser)) ->
                     if apiaryUser.isActive then
                         renderAppStatusBadge { status = Success, label = "Membership active", tooltip = "User is membership active in Apiary", link = Nothing }
@@ -2542,9 +2428,9 @@ membershipActiveBadge model =
 
 signedLatestAgreementBadge : Model -> Html msg
 signedLatestAgreementBadge model =
-    case model.selectedUser of
-        Just user ->
-            case user.apiaryUser of
+    case model.selectedDirectoryId of
+        Just _ ->
+            case model.apiaryUser of
                 Just (Ok (Just apiaryUser)) ->
                     if apiaryUser.signedLatestAgreement then
                         renderAppStatusBadge { status = Success, label = "Signed latest agreement", tooltip = "User has signed the latest agreement", link = Nothing }
@@ -2567,9 +2453,9 @@ signedLatestAgreementBadge model =
 
 accessActiveBadge : Model -> Html msg
 accessActiveBadge model =
-    case model.selectedUser of
-        Just user ->
-            case user.apiaryUser of
+    case model.selectedDirectoryId of
+        Just _ ->
+            case model.apiaryUser of
                 Just (Ok (Just apiaryUser)) ->
                     if apiaryUser.isAccessActive then
                         renderAppStatusBadge { status = Success, label = "Access active", tooltip = "User is access active in Apiary", link = Nothing }
@@ -2592,9 +2478,9 @@ accessActiveBadge model =
 
 anyTeamMembershipBadge : Model -> Html msg
 anyTeamMembershipBadge model =
-    case model.selectedUser of
-        Just user ->
-            case user.apiaryUser of
+    case model.selectedDirectoryId of
+        Just _ ->
+            case model.apiaryUser of
                 Just (Ok (Just apiaryUser)) ->
                     if List.length apiaryUser.teams > 0 then
                         renderAppStatusBadge { status = Success, label = "Team membership", tooltip = "User is a member of " ++ String.fromInt (List.length apiaryUser.teams) ++ " teams in Apiary", link = Nothing }
@@ -2617,9 +2503,9 @@ anyTeamMembershipBadge model =
 
 elevatedRoleBadge : Model -> Html msg
 elevatedRoleBadge model =
-    case model.selectedUser of
-        Just user ->
-            case user.apiaryUser of
+    case model.selectedDirectoryId of
+        Just _ ->
+            case model.apiaryUser of
                 Just (Ok (Just apiaryUser)) ->
                     if List.length (List.filter (\role -> role /= "member" && role /= "non-member") apiaryUser.roles) > 0 then
                         renderAppStatusBadge
@@ -2657,9 +2543,9 @@ elevatedRoleBadge model =
 
 teamMembershipWithGroupBadge : Model -> Html msg
 teamMembershipWithGroupBadge model =
-    case model.selectedUser of
-        Just user ->
-            case user.apiaryUser of
+    case model.selectedDirectoryId of
+        Just _ ->
+            case model.apiaryUser of
                 Just (Ok (Just apiaryUser)) ->
                     if List.length (List.filter (\team -> team.googleGroupEmail /= Nothing) apiaryUser.teams) > 0 then
                         renderAppStatusBadge { status = Success, label = "Team membership", tooltip = "User is a member of " ++ String.fromInt (List.length (List.filter (\team -> team.googleGroupEmail /= Nothing) apiaryUser.teams)) ++ " teams in Apiary with Google Groups associated", link = Nothing }
@@ -2682,9 +2568,9 @@ teamMembershipWithGroupBadge model =
 
 teamMembershipWithGrouperBadge : Model -> Html msg
 teamMembershipWithGrouperBadge model =
-    case model.selectedUser of
-        Just user ->
-            case user.apiaryUser of
+    case model.selectedDirectoryId of
+        Just _ ->
+            case model.apiaryUser of
                 Just (Ok (Just apiaryUser)) ->
                     if List.length (List.filter (\team -> List.member (String.toLower team.displayName) (List.map String.toLower model.grouperGroups)) apiaryUser.teams) > 0 then
                         renderAppStatusBadge { status = Success, label = "Team membership", tooltip = "User is a member of " ++ String.fromInt (List.length (List.filter (\team -> List.member (String.toLower team.displayName) (List.map String.toLower model.grouperGroups)) apiaryUser.teams)) ++ " teams in Apiary with Grouper groups", link = Nothing }
@@ -2710,9 +2596,9 @@ googleWorkspaceKeycloakProvisionedBadge model =
     let
         badgeLink : Maybe String
         badgeLink =
-            case model.selectedUser of
-                Just user ->
-                    case user.keycloakAccount of
+            case model.selectedDirectoryId of
+                Just _ ->
+                    case model.keycloakAccount of
                         Just (Ok (Just _)) ->
                             Just (model.keycloakDeepLinkBaseUrl ++ getKeycloakUserId model ++ "/settings")
 
@@ -2722,11 +2608,11 @@ googleWorkspaceKeycloakProvisionedBadge model =
                 _ ->
                     Nothing
     in
-    case model.selectedUser of
-        Just user ->
-            case user.googleWorkspaceAccount of
+    case model.selectedDirectoryId of
+        Just _ ->
+            case model.googleWorkspaceAccount of
                 Just (Ok (Just googleWorkspaceAccount)) ->
-                    case user.keycloakAccount of
+                    case model.keycloakAccount of
                         Just (Ok (Just keycloakAccount)) ->
                             if keycloakAccount.enabled then
                                 if List.head (Maybe.withDefault [] (Dict.get "googleWorkspaceAccount" (Maybe.withDefault Dict.empty keycloakAccount.attributes))) == Just googleWorkspaceAccount.primaryEmail then
@@ -2748,7 +2634,7 @@ googleWorkspaceKeycloakProvisionedBadge model =
                             renderAppStatusBadge { status = Loading, label = "Keycloak", tooltip = "Error loading Keycloak account", link = badgeLink }
 
                 Just (Ok Nothing) ->
-                    case user.keycloakAccount of
+                    case model.keycloakAccount of
                         Just (Ok (Just keycloakAccount)) ->
                             if keycloakAccount.enabled then
                                 renderAppStatusBadge { status = Danger, label = "Keycloak", tooltip = "Keycloak account isn't configured for single sign-on with Google Workspace", link = badgeLink }
@@ -2781,9 +2667,9 @@ googleWorkspaceAccountProvisionedBadge model =
     let
         badgeLink : Maybe String
         badgeLink =
-            case model.selectedUser of
-                Just user ->
-                    case user.googleWorkspaceAccount of
+            case model.selectedDirectoryId of
+                Just _ ->
+                    case model.googleWorkspaceAccount of
                         Just (Ok (Just _)) ->
                             Just ("https://www.google.com/a/robojackets.org/ServiceLogin?continue=https://admin.google.com/ac/search?query=" ++ getGoogleWorkspacePrimaryEmail model)
 
@@ -2793,9 +2679,9 @@ googleWorkspaceAccountProvisionedBadge model =
                 _ ->
                     Nothing
     in
-    case model.selectedUser of
-        Just user ->
-            case user.googleWorkspaceAccount of
+    case model.selectedDirectoryId of
+        Just _ ->
+            case model.googleWorkspaceAccount of
                 Just (Ok (Just googleWorkspaceAccount)) ->
                     if googleWorkspaceAccount.suspended then
                         renderAppStatusBadge { status = Danger, label = "Google Workspace", tooltip = "User has a suspended Google Workspace account", link = badgeLink }
@@ -2818,9 +2704,9 @@ googleWorkspaceAccountProvisionedBadge model =
 
 googleGroupsProvisioning : Model -> Html msg
 googleGroupsProvisioning model =
-    case model.selectedUser of
-        Just user ->
-            case user.apiaryUser of
+    case model.selectedDirectoryId of
+        Just _ ->
+            case model.apiaryUser of
                 Just (Ok (Just apiaryUser)) ->
                     case apiaryUser.googleAccount of
                         Just googleAccount ->
@@ -2870,9 +2756,9 @@ googleGroupsProvisioning model =
 
 groupsToShowFromGoogleGroupsResponse : Model -> String -> Set.Set String
 groupsToShowFromGoogleGroupsResponse model thisAccount =
-    case model.selectedUser of
-        Just user ->
-            case user.googleGroups of
+    case model.selectedDirectoryId of
+        Just _ ->
+            case model.googleGroups of
                 Just (Ok groups) ->
                     case Dict.get thisAccount groups of
                         Just (Just thisAccountGroups) ->
@@ -2890,9 +2776,9 @@ groupsToShowFromGoogleGroupsResponse model thisAccount =
 
 groupsToShowFromApiaryResponse : Model -> Set.Set String
 groupsToShowFromApiaryResponse model =
-    case model.selectedUser of
-        Just user ->
-            case user.apiaryUser of
+    case model.selectedDirectoryId of
+        Just _ ->
+            case model.apiaryUser of
                 Just (Ok (Just apiaryUser)) ->
                     if apiaryUser.isAccessActive then
                         Set.fromList (List.map String.toLower (List.filterMap .googleGroupEmail apiaryUser.teams))
@@ -2914,9 +2800,9 @@ allGroupsToShow model thisAccount =
 
 displayNameForGoogleGroupFromGoogleGroupsResponse : Model -> String -> Maybe String
 displayNameForGoogleGroupFromGoogleGroupsResponse model thisGroupEmail =
-    case model.selectedUser of
-        Just user ->
-            case user.googleGroups of
+    case model.selectedDirectoryId of
+        Just _ ->
+            case model.googleGroups of
                 Just (Ok groups) ->
                     let
                         allGroups : List Group
@@ -2941,9 +2827,9 @@ displayNameForGoogleGroupFromGoogleGroupsResponse model thisGroupEmail =
 
 displayNameForGoogleGroupFromApiaryResponse : Model -> String -> Maybe String
 displayNameForGoogleGroupFromApiaryResponse model thisGroupEmail =
-    case model.selectedUser of
-        Just user ->
-            case user.apiaryUser of
+    case model.selectedDirectoryId of
+        Just _ ->
+            case model.apiaryUser of
                 Just (Ok (Just apiaryUser)) ->
                     case List.head (List.filter (\x -> Maybe.map String.toLower x.googleGroupEmail == Just (String.toLower thisGroupEmail)) apiaryUser.teams) of
                         Just thisGroup ->
@@ -2977,14 +2863,14 @@ displayNameForGoogleGroup model thisGroupEmail =
 getAppStatusBadgeForGroup : Model -> String -> String -> AppStatusBadge
 getAppStatusBadgeForGroup model thisAccount thisGroupEmail =
     { status =
-        case model.selectedUser of
-            Just selectedUser ->
-                case selectedUser.googleGroups of
+        case model.selectedDirectoryId of
+            Just _ ->
+                case model.googleGroups of
                     Just (Ok groups) ->
                         case Dict.get thisAccount groups of
                             Just (Just thisAccountGroups) ->
                                 if List.any (\g -> Maybe.map String.toLower g.googleGroupEmail == Just (String.toLower thisGroupEmail)) thisAccountGroups then
-                                    case selectedUser.apiaryUser of
+                                    case model.apiaryUser of
                                         Just (Ok (Just apiaryUser)) ->
                                             if List.any (\g -> Maybe.map String.toLower g.googleGroupEmail == Just (String.toLower thisGroupEmail)) apiaryUser.teams then
                                                 Success
@@ -3014,14 +2900,14 @@ getAppStatusBadgeForGroup model thisAccount thisGroupEmail =
                 Loading
     , label = displayNameForGoogleGroup model (String.toLower thisGroupEmail)
     , tooltip =
-        case model.selectedUser of
-            Just selectedUser ->
-                case selectedUser.googleGroups of
+        case model.selectedDirectoryId of
+            Just _ ->
+                case model.googleGroups of
                     Just (Ok groups) ->
                         case Dict.get thisAccount groups of
                             Just (Just thisAccountGroups) ->
                                 if List.any (\g -> Maybe.map String.toLower g.googleGroupEmail == Just (String.toLower thisGroupEmail)) thisAccountGroups then
-                                    case selectedUser.apiaryUser of
+                                    case model.apiaryUser of
                                         Just (Ok (Just apiaryUser)) ->
                                             if List.any (\g -> Maybe.map String.toLower g.googleGroupEmail == Just (String.toLower thisGroupEmail)) apiaryUser.teams then
                                                 "User is in the " ++ displayNameForGoogleGroup model (String.toLower thisGroupEmail) ++ " team in Apiary, and is provisioned in the corresponding Google Group"
@@ -3092,9 +2978,9 @@ googleGroupAccountProvisioning model thisAccount =
 
 grouperGroupProvisioningBadge : Model -> Html msg
 grouperGroupProvisioningBadge model =
-    case model.selectedUser of
-        Just user ->
-            case user.grouperMemberships of
+    case model.selectedDirectoryId of
+        Just _ ->
+            case model.grouperMemberships of
                 Just (Ok memberships) ->
                     if List.member "general" memberships then
                         renderAppStatusBadge { status = Success, label = "Grouper", tooltip = "User is in the general Grouper group in Grouper", link = Nothing }
@@ -3114,9 +3000,9 @@ grouperGroupProvisioningBadge model =
 
 gtadGroupProvisioningBadge : Model -> Html msg
 gtadGroupProvisioningBadge model =
-    case model.selectedUser of
-        Just user ->
-            case user.gtadAccount of
+    case model.selectedDirectoryId of
+        Just _ ->
+            case model.gtadAccount of
                 Just (Ok account) ->
                     if List.member "CN=general_robojackets_services_gt,OU=grouper-prod,OU=Gted,OU=GT_Resources,DC=ad,DC=gatech,DC=edu" (Maybe.withDefault [] (Dict.get "memberOf" account.attributes)) then
                         renderAppStatusBadge { status = Success, label = "GTAD", tooltip = "User is in the general Grouper group in GTAD", link = Nothing }
@@ -3136,9 +3022,9 @@ gtadGroupProvisioningBadge model =
 
 dropboxGtedEligibilityBadge : Model -> Html msg
 dropboxGtedEligibilityBadge model =
-    case model.selectedUser of
-        Just user ->
-            case user.gtedAccounts of
+    case model.selectedDirectoryId of
+        Just _ ->
+            case model.gtedAccounts of
                 Just (Ok accounts) ->
                     if List.any (\account -> List.member "/gt/central/services/dropbox/dropbox-eligible/enabled" account.gtAccountEntitlement) accounts then
                         renderAppStatusBadge { status = Success, label = "Georgia Tech entitlement", tooltip = "User is eligible for a Georgia Tech Dropbox account", link = Nothing }
@@ -3158,9 +3044,9 @@ dropboxGtedEligibilityBadge model =
 
 dropboxGtedProvisionedBadge : Model -> Html msg
 dropboxGtedProvisionedBadge model =
-    case model.selectedUser of
-        Just user ->
-            case user.gtedAccounts of
+    case model.selectedDirectoryId of
+        Just _ ->
+            case model.gtedAccounts of
                 Just (Ok accounts) ->
                     if List.any (\account -> List.member "/gt/central/services/dropbox/dropbox-access/enabled" account.gtAccountEntitlement) accounts then
                         renderAppStatusBadge { status = Success, label = "Georgia Tech Dropbox account", tooltip = "User has a Georgia Tech Dropbox account", link = Nothing }
@@ -3180,9 +3066,9 @@ dropboxGtedProvisionedBadge model =
 
 hasRecentSumsAttendance : Model -> Bool
 hasRecentSumsAttendance model =
-    case model.selectedUser of
-        Just user ->
-            case user.apiaryUser of
+    case model.selectedDirectoryId of
+        Just _ ->
+            case model.apiaryUser of
                 Just (Ok (Just apiaryUser)) ->
                     List.any (\attendanceRecord -> attendanceRecord.attendableType == "team" && (not (String.startsWith "remote" (Maybe.withDefault "" attendanceRecord.source)) && Time.posixToMillis attendanceRecord.createdAt > (Time.posixToMillis model.time - 2419200000))) apiaryUser.attendanceRecords
 
@@ -3198,9 +3084,9 @@ recentEligibleAttendanceBadge model =
     let
         recentAttendanceLink : Maybe String
         recentAttendanceLink =
-            case model.selectedUser of
-                Just user ->
-                    case user.apiaryUser of
+            case model.selectedDirectoryId of
+                Just _ ->
+                    case model.apiaryUser of
                         Just (Ok (Just apiaryUser)) ->
                             case List.head (List.sortWith (\first second -> compare (Time.posixToMillis second.createdAt) (Time.posixToMillis first.createdAt)) (List.filter (\attendanceRecord -> attendanceRecord.attendableType == "team" && not (String.startsWith "remote" (Maybe.withDefault "" attendanceRecord.source))) apiaryUser.attendanceRecords)) of
                                 Just attendanceRecord ->
@@ -3215,9 +3101,9 @@ recentEligibleAttendanceBadge model =
                 _ ->
                     Nothing
     in
-    case model.selectedUser of
-        Just user ->
-            case user.apiaryUser of
+    case model.selectedDirectoryId of
+        Just _ ->
+            case model.apiaryUser of
                 Just (Ok (Just _)) ->
                     if hasRecentSumsAttendance model then
                         renderAppStatusBadge { status = Success, label = "Recent attendance", tooltip = "User has attended a team meeting in person within the last 4 weeks", link = recentAttendanceLink }
@@ -3240,15 +3126,15 @@ recentEligibleAttendanceBadge model =
 
 sumsBillingGroupsProvisioning : Model -> List (Html msg)
 sumsBillingGroupsProvisioning model =
-    case model.selectedUser of
-        Just user ->
-            case user.sumsBillingGroups of
+    case model.selectedDirectoryId of
+        Just _ ->
+            case model.sumsBillingGroups of
                 Just (Ok billingGroups) ->
                     if not (billingGroups.ecoCAR || billingGroups.motorsports || billingGroups.offRoad || billingGroups.solar || billingGroups.hyTech || billingGroups.roboJackets || billingGroups.wreck) then
                         [ span [ class "text-secondary" ] [ text "No billing groups to provision" ] ]
 
                     else
-                        case user.apiaryUser of
+                        case model.apiaryUser of
                             Just (Ok (Just apiaryUser)) ->
                                 (if billingGroups.ecoCAR then
                                     [ renderAppStatusBadge { status = Info, label = "EcoCAR", tooltip = "User is in the EcoCAR billing group", link = Nothing } ]
