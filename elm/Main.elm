@@ -2243,7 +2243,7 @@ viewPerson model =
                                                     [ tr [] [ td [ class "text-secondary", class "border-0" ] [ text "No events" ] ] ]
 
                                                 else
-                                                    List.map (eventToHtmlRow model.zone model.zoneName) (List.sortWith sortByEventTimestamp events)
+                                                    List.map (eventToHtmlRow model.zone model.zoneName) (dedupEvents (List.sortWith sortByEventTimestamp events))
 
                                             Just (Err _) ->
                                                 []
@@ -2421,6 +2421,50 @@ eventToHtmlRow zone zoneName event =
 sortByEventTimestamp : Event -> Event -> Order
 sortByEventTimestamp first second =
     compare (Time.posixToMillis second.eventTimestamp) (Time.posixToMillis first.eventTimestamp)
+
+
+eventDedupKey : Event -> String
+eventDedupKey event =
+    let
+        maybeKey : Maybe String -> String
+        maybeKey m =
+            case m of
+                Just s ->
+                    "J" ++ s
+
+                Nothing ->
+                    "N"
+    in
+    String.fromInt (Time.posixToMillis event.eventTimestamp // 60000)
+        ++ "\u{0000}"
+        ++ event.actorDisplayName
+        ++ "\u{0000}"
+        ++ maybeKey event.actorLink
+        ++ "\u{0000}"
+        ++ event.eventDescription
+        ++ "\u{0000}"
+        ++ maybeKey event.eventLink
+
+
+dedupEvents : List Event -> List Event
+dedupEvents events =
+    List.foldl
+        (\event ( seen, acc ) ->
+            let
+                key : String
+                key =
+                    eventDedupKey event
+            in
+            if Set.member key seen then
+                ( seen, acc )
+
+            else
+                ( Set.insert key seen, event :: acc )
+        )
+        ( Set.empty, [] )
+        events
+        |> Tuple.second
+        |> List.reverse
 
 
 eventRowPlaceholder : Html msg
