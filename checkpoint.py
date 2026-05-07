@@ -550,8 +550,13 @@ def get_actor(**kwargs: str) -> Dict[str, Union[str, None]]:
                     update_crosswalk_from_keycloak_user(keycloak_account)
                     return actor  # type: ignore
 
+                actor_display_name = keycloak_account["username"]
+
+                if actor_display_name.startswith("service-account-"):
+                    actor_display_name = actor_display_name[len("service-account-") :]  # noqa
+
                 return {
-                    "actorDisplayName": keycloak_account["username"],
+                    "actorDisplayName": actor_display_name,
                     "actorLink": urlunparse(
                         (
                             urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,
