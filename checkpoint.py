@@ -536,18 +536,22 @@ def get_actor(**kwargs: str) -> Dict[str, Union[str, None]]:
                 )
                 keycloak_response.raise_for_status()
 
+                keycloak_account = keycloak_response.json()
+
                 if (
                     fullmatch(
                         GEORGIA_TECH_USERNAME_REGEX,
-                        keycloak_response.json()["username"],
+                        keycloak_account["username"],
                         IGNORECASE,
                     )
                     is not None
                 ):
-                    return get_actor(uid=keycloak_response.json()["username"])  # type: ignore
+                    actor = get_actor(uid=keycloak_account["username"])
+                    update_crosswalk_from_keycloak_user(keycloak_account)
+                    return actor  # type: ignore
 
                 return {
-                    "actorDisplayName": keycloak_response.json()["username"],
+                    "actorDisplayName": keycloak_account["username"],
                     "actorLink": urlunparse(
                         (
                             urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,
@@ -555,11 +559,7 @@ def get_actor(**kwargs: str) -> Dict[str, Union[str, None]]:
                             "/admin/master/console/",
                             "",
                             "",
-                            "/"
-                            + realm["realm"]
-                            + "/users/"
-                            + keycloak_response.json()["id"]
-                            + "/settings",
+                            "/" + realm["realm"] + "/users/" + keycloak_account["id"] + "/settings",
                         )
                     ),
                 }
@@ -917,6 +917,73 @@ def fuzzy_search_apiary(query: str) -> List[Dict[str, Any]]:
     return users
 
 
+def update_crosswalk_from_keycloak_user(account: Dict[str, Any]) -> None:
+    """
+    Upsert the Keycloak identifiers and email addresses from a Keycloak user object
+    into Crosswalk, anchored on the row whose primary_username matches the Keycloak
+    username.
+    """
+    if account.get("username") is None:
+        return
+
+    cursor = db().execute(
+        "SELECT gt_person_directory_id FROM crosswalk WHERE primary_username = (:username)",
+        {"username": account["username"]},
+    )
+    row = cursor.fetchone()
+
+    if row is None:
+        return
+
+    if account.get("id") is not None:
+        db().execute(
+            (
+                "UPDATE crosswalk SET keycloak_user_id = (:keycloak_user_id)"
+                " WHERE gt_person_directory_id = (:gt_person_directory_id)"
+            ),
+            {
+                "keycloak_user_id": account["id"],
+                "gt_person_directory_id": row[0],
+            },
+        )
+
+    for email_address in (
+        account.get("email"),
+        get_attribute_value("googleWorkspaceAccount", account),
+        get_attribute_value("rampLoginEmailAddress", account),
+    ):
+        if email_address is None:
+            continue
+
+        db().execute(
+            (
+                "INSERT INTO crosswalk_email_address (email_address, gt_person_directory_id)"  # noqa
+                " VALUES (:email_address, :gt_person_directory_id)"
+                " ON CONFLICT DO UPDATE SET gt_person_directory_id = (:gt_person_directory_id) WHERE email_address = (:email_address)"  # noqa
+            ),
+            {
+                "email_address": email_address,
+                "gt_person_directory_id": row[0],
+            },
+        )
+
+
+def update_crosswalk_slack_user_id(slack_user_id: str, gt_person_directory_id: str) -> None:
+    """
+    Persist the mapping from a Slack user ID to a known gtPersonDirectoryId.
+    """
+    db().execute(
+        (
+            "UPDATE crosswalk SET slack_user_id = (:slack_user_id)"
+            " WHERE gt_person_directory_id = (:gt_person_directory_id)"
+        ),
+        {
+            "slack_user_id": slack_user_id,
+            "gt_person_directory_id": gt_person_directory_id,
+        },
+    )
+
+
 def clean_affiliations(affiliations: List[str]) -> List[str]:
     """
     Remove redundant or confusing affiliations from search results
@@ -1233,7 +1300,8 @@ CREATE TABLE IF NOT EXISTS crosswalk (
     primary_username TEXT NOT NULL UNIQUE COLLATE NOCASE,
     keycloak_user_id TEXT UNIQUE COLLATE NOCASE,
     google_workspace_user_id TEXT UNIQUE COLLATE NOCASE,
-    apiary_user_id INTEGER UNIQUE
+    apiary_user_id INTEGER UNIQUE,
+    slack_user_id TEXT UNIQUE COLLATE NOCASE
 ) strict;
 
 CREATE TABLE IF NOT EXISTS crosswalk_email_address (
@@ -1818,7 +1886,10 @@ def get_keycloak_account(directory_id: str, is_frontend_request: bool = True) ->
         )
         keycloak_response.raise_for_status()
 
-        return keycloak_response.json()  # type: ignore
+        keycloak_account = keycloak_response.json()
+        update_crosswalk_from_keycloak_user(keycloak_account)
+
+        return keycloak_account  # type: ignore
 
     cursor = db().execute(
         "SELECT primary_username FROM crosswalk WHERE gt_person_directory_id = (:directory_id)",
@@ -3666,6 +3737,8 @@ def handle_event_callback(body: Dict[str, Any]) -> Dict[str, str]:
     if len(lookup_results["results"]) == 0:
         return {"status": "ok"}
 
+    update_crosswalk_slack_user_id(lookup_user_id, lookup_results["results"][0]["directoryId"])
+
     blocks = format_search_result_blocks(lookup_results)
 
     ephemeral_users = app.config.get("SLACK_EPHEMERAL_USERS", "")
@@ -3720,6 +3793,8 @@ def slack_user_has_access(user_id: str) -> bool:
 
     if len(triggering_user_results["results"]) == 0:
         return False
+
+    update_crosswalk_slack_user_id(user_id, triggering_user_results["results"][0]["directoryId"])
 
     keycloak_account = get_keycloak_account(
         triggering_user_results["results"][0]["directoryId"], is_frontend_request=False
@@ -3825,6 +3900,9 @@ def handle_slack_search_request(payload: Dict[str, Any]) -> None:
         )
 
     lookup_results = search_by_email(Address(addr_spec=lookup_email))
+
+    if len(lookup_results["results"]) > 0:
+        update_crosswalk_slack_user_id(lookup_user_id, lookup_results["results"][0]["directoryId"])
 
     slack.views_open(
         trigger_id=payload["trigger_id"],
