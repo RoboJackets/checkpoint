@@ -1982,6 +1982,8 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
                 description = "logged into " + client_id
             elif event["type"] == "CODE_TO_TOKEN":
                 description = "logged into " + client_id
+            elif event["type"] == "REGISTER":
+                description = "logged into " + client_id
             elif event["type"] == "LOGOUT":
                 description = "logged out of " + client_id
             elif event["type"] == "LOGIN_ERROR":
