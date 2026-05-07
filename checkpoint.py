@@ -3702,102 +3702,61 @@ def get_grouper_memberships(directory_id: str) -> Dict[str, Any]:
     return grouper_response.json()["WsGetMembershipsResults"]  # type: ignore
 
 
-def handle_event_callback(body: Dict[str, Any]) -> Dict[str, str]:
+@cache.memoize(
+    args_to_ignore=["with_gted", "with_title_and_organization"],
+    response_filter=only_cache_if_result_present,
+)
+def search_by_slack_user_id(
+    slack_user_id: str, with_gted: bool, with_title_and_organization: bool
+) -> Any:
     """
-    Handle an event callback from the Slack Events API
+    Search for a person by Slack user ID
     """
-    event = body.get("event", {})
+    cursor = db().execute(
+        "SELECT primary_username FROM crosswalk WHERE slack_user_id = (:slack_user_id)",
+        {"slack_user_id": slack_user_id},
+    )
+    row = cursor.fetchone()
 
-    if event.get("type") != "message":
-        return {"status": "ok"}
+    if row is not None:
+        return search_by_username(row[0], with_title_and_organization=with_title_and_organization)
 
-    if "subtype" in event:
-        return {"status": "ok"}
+    slack_user_info = slack.users_info(user=slack_user_id)
 
-    if "user" not in event or "channel" not in event:
-        return {"status": "ok"}
+    if slack_user_info.get("ok") is False:
+        return {"results": [], "exactMatch": True}
 
-    if "thread_ts" in event:
-        return {"status": "ok"}
+    slack_user_profile: Any = slack_user_info.get("user", {})
+    slack_user_email = slack_user_profile.get("profile", {}).get("email")
 
-    mentioned_users = re.findall(r"<@(U[A-Z0-9]+)>", event.get("text", ""))
+    if slack_user_email is None:
+        return {"results": [], "exactMatch": True}
 
-    lookup_user_id = mentioned_users[0] if len(mentioned_users) == 1 else event["user"]
-
-    lookup_user_info = slack.users_info(user=lookup_user_id)
-
-    lookup_email: Union[str, None] = None
-
-    if lookup_user_info.get("ok") is True:
-        lookup_profile: Any = lookup_user_info.get("user", {})
-        lookup_email = lookup_profile.get("profile", {}).get("email")
-
-    if lookup_email is None:
-        return {"status": "ok"}
-
-    lookup_results = search_by_email(Address(addr_spec=lookup_email))
-
-    if len(lookup_results["results"]) == 0:
-        return {"status": "ok"}
-
-    update_crosswalk_slack_user_id(lookup_user_id, lookup_results["results"][0]["directoryId"])
-
-    blocks = format_search_result_blocks(lookup_results)
-
-    ephemeral_users = app.config.get("SLACK_EPHEMERAL_USERS", "")
-    if isinstance(ephemeral_users, str):
-        user_ids = [uid.strip() for uid in ephemeral_users.split(",") if uid.strip()]
-    else:
-        user_ids = []
-
-    plain_text = (
-        lookup_results["results"][0]["givenName"] + " " + lookup_results["results"][0]["surname"]
+    search_results = search_by_email(
+        Address(addr_spec=slack_user_email),
+        with_gted=with_gted,
+        with_title_and_organization=with_title_and_organization,
     )
 
-    if lookup_results["results"][0]["title"] is not None:
-        plain_text += " - " + lookup_results["results"][0]["title"]
+    if len(search_results["results"]) == 0:
+        return {"results": [], "exactMatch": True}
 
-    if lookup_results["results"][0]["organizationalUnit"] is not None:
-        if lookup_results["results"][0]["organizationalUnit"] in get_majors():
-            plain_text += " - " + get_majors()[lookup_results["results"][0]["organizationalUnit"]]
-        else:
-            plain_text += " - " + lookup_results["results"][0]["organizationalUnit"]
+    update_crosswalk_slack_user_id(slack_user_id, search_results["results"][0]["directoryId"])
 
-    for user_id in user_ids:
-        slack.chat_postEphemeral(
-            channel=event["channel"],
-            user=user_id,
-            text=plain_text,
-            blocks=blocks,
-        )
-
-    return {"status": "ok"}
+    return search_results
 
 
 @cache.memoize()
-def slack_user_has_access(user_id: str) -> bool:
+def slack_user_has_access_to_checkpoint(slack_user_id: str) -> bool:
     """
     Check if a Slack user has access to Checkpoint
     """
-    triggering_user_info = slack.users_info(user=user_id)
-
-    triggering_user_email: Union[str, None] = None
-
-    if triggering_user_info.get("ok") is True:
-        triggering_user_profile: Any = triggering_user_info.get("user", {})
-        triggering_user_email = triggering_user_profile.get("profile", {}).get("email")
-
-    if triggering_user_email is None:
-        return False
-
-    triggering_user_results = search_by_email(
-        Address(addr_spec=triggering_user_email), with_gted=False, with_title_and_organization=False
+    triggering_user_results = search_by_slack_user_id(
+        slack_user_id, with_gted=False, with_title_and_organization=False
     )
 
     if len(triggering_user_results["results"]) == 0:
         return False
-
-    update_crosswalk_slack_user_id(user_id, triggering_user_results["results"][0]["directoryId"])
 
     keycloak_account = get_keycloak_account(
         triggering_user_results["results"][0]["directoryId"], is_frontend_request=False
@@ -3854,7 +3813,7 @@ def handle_slack_search_request(payload: Dict[str, Any]) -> None:
     """
     Handle a Slack interaction event
     """
-    if slack_user_has_access(payload["user"]["id"]) is False:
+    if slack_user_has_access_to_checkpoint(payload["user"]["id"]) is False:
         slack.views_open(
             trigger_id=payload["trigger_id"],
             view={
@@ -3876,15 +3835,11 @@ def handle_slack_search_request(payload: Dict[str, Any]) -> None:
 
     lookup_user_id = mentioned_users[0] if len(mentioned_users) == 1 else payload["message"]["user"]
 
-    lookup_user_info = slack.users_info(user=lookup_user_id)
+    lookup_results = search_by_slack_user_id(
+        lookup_user_id, with_gted=True, with_title_and_organization=True
+    )
 
-    lookup_email: Union[str, None] = None
-
-    if lookup_user_info.get("ok") is True:
-        lookup_profile: Any = lookup_user_info.get("user", {})
-        lookup_email = lookup_profile.get("profile", {}).get("email")
-
-    if lookup_email is None:
+    if len(lookup_results["results"]) == 0:
         slack.views_open(
             trigger_id=payload["trigger_id"],
             view={
@@ -3895,17 +3850,14 @@ def handle_slack_search_request(payload: Dict[str, Any]) -> None:
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": "Could not determine the user's email address.",
+                            "text": "Could not find a Georgia Tech account for this user.",
                         },
                     }
                 ],
             },
         )
 
-    lookup_results = search_by_email(Address(addr_spec=lookup_email))
-
-    if len(lookup_results["results"]) > 0:
-        update_crosswalk_slack_user_id(lookup_user_id, lookup_results["results"][0]["directoryId"])
+        return
 
     slack.views_open(
         trigger_id=payload["trigger_id"],
@@ -3915,6 +3867,52 @@ def handle_slack_search_request(payload: Dict[str, Any]) -> None:
             "blocks": format_search_result_blocks(lookup_results),
         },
     )
+
+
+@shared_task
+def handle_slack_message_event(event: Dict[str, Any]) -> None:
+    """
+    Handle a Slack message event
+    """
+    mentioned_users = re.findall(r"<@(U[A-Z0-9]+)>", event.get("text", ""))
+
+    lookup_user_id = mentioned_users[0] if len(mentioned_users) == 1 else event["user"]
+
+    lookup_results = search_by_slack_user_id(
+        lookup_user_id, with_gted=True, with_title_and_organization=True
+    )
+
+    if len(lookup_results["results"]) == 0:
+        return
+
+    blocks = format_search_result_blocks(lookup_results)
+
+    ephemeral_users = app.config.get("SLACK_EPHEMERAL_USERS", "")
+    if isinstance(ephemeral_users, str):
+        user_ids = [uid.strip() for uid in ephemeral_users.split(",") if uid.strip()]
+    else:
+        user_ids = []
+
+    plain_text = (
+        lookup_results["results"][0]["givenName"] + " " + lookup_results["results"][0]["surname"]
+    )
+
+    if lookup_results["results"][0]["title"] is not None:
+        plain_text += " - " + lookup_results["results"][0]["title"]
+
+    if lookup_results["results"][0]["organizationalUnit"] is not None:
+        if lookup_results["results"][0]["organizationalUnit"] in get_majors():
+            plain_text += " - " + get_majors()[lookup_results["results"][0]["organizationalUnit"]]
+        else:
+            plain_text += " - " + lookup_results["results"][0]["organizationalUnit"]
+
+    for user_id in user_ids:
+        slack.chat_postEphemeral(
+            channel=event["channel"],
+            user=user_id,
+            text=plain_text,
+            blocks=blocks,
+        )
 
 
 @app.post("/slack/interaction")
@@ -3940,8 +3938,8 @@ def handle_slack_interaction() -> Dict[str, str]:
     return {"status": "ok"}
 
 
-@app.post("/slack")
-def handle_slack_event() -> Dict[str, str]:
+@app.post("/slack/message")
+def handle_slack_nessage() -> Dict[str, str]:
     """
     Handle an event from Slack
     """
@@ -3952,13 +3950,13 @@ def handle_slack_event() -> Dict[str, str]:
 
     if request.content_type is not None and "application/json" in request.content_type:
         body = request.get_json()
+
         if body is not None and body.get("type") == "url_verification":
             return {"challenge": body["challenge"]}
 
-    if request.content_type is not None and "application/json" in request.content_type:
-        body = request.get_json()
         if body is not None and body.get("type") == "event_callback":
-            return handle_event_callback(body)
+            handle_slack_message_event.delay(body.get("event", {}))
+            return {"status": "ok"}
 
     raise BadRequest("Unsupported payload type")
 
