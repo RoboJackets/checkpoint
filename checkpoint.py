@@ -546,9 +546,7 @@ def get_actor(**kwargs: str) -> Dict[str, Union[str, None]]:
                     )
                     is not None
                 ):
-                    actor = get_actor(uid=keycloak_account["username"])
-                    update_crosswalk_from_keycloak_user(keycloak_account)
-                    return actor  # type: ignore
+                    return get_actor(uid=keycloak_account["username"])  # type: ignore
 
                 actor_display_name = keycloak_account["username"]
 
