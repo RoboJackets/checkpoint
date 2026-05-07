@@ -1394,14 +1394,43 @@ viewPerson model =
     , body =
         [ renderNavbar model
         , div [ class "container", style "max-width" "64rem", style "margin-top" "5rem" ]
-            ((case model.selectedDirectoryId of
-                Just _ ->
-                    case model.gtedAccounts of
+            ((case model.gtedAccounts of
+                Just (Err (BadStatus 404)) ->
+                    [ div [ class "alert", class "alert-danger" ]
+                        [ text "The provided directory ID was not found in GTED. Check the URL."
+                        ]
+                    ]
+
+                Just (Err err) ->
+                    [ div [ class "alert", class "alert-danger" ]
+                        [ text
+                            ((case err of
+                                BadUrl errorMessage ->
+                                    errorMessage
+
+                                Timeout ->
+                                    "There was a timeout while retrieving GTED accounts."
+
+                                NetworkError ->
+                                    "There was a network error while retrieving GTED accounts."
+
+                                BadStatus statusCode ->
+                                    "The server returned status code " ++ String.fromInt statusCode ++ " white retrieving GTED accounts."
+
+                                BadBody errorMessage ->
+                                    "There was an error parsing GTED accounts: " ++ errorMessage ++ "."
+                             )
+                                ++ " Reload the page to try again."
+                            )
+                        ]
+                    ]
+
+                _ ->
+                    []
+             )
+                ++ (case model.whitepagesEntries of
                         Just (Err (BadStatus 404)) ->
-                            [ div [ class "alert", class "alert-danger" ]
-                                [ text "The provided directory ID was not found in GTED. Check the URL."
-                                ]
-                            ]
+                            []
 
                         Just (Err err) ->
                             [ div [ class "alert", class "alert-danger" ]
@@ -1411,16 +1440,16 @@ viewPerson model =
                                             errorMessage
 
                                         Timeout ->
-                                            "There was a timeout while retrieving GTED accounts."
+                                            "There was a timeout while retrieving Whitepages entries."
 
                                         NetworkError ->
-                                            "There was a network error while retrieving GTED accounts."
+                                            "There was a network error while retrieving Whitepages entries."
 
                                         BadStatus statusCode ->
-                                            "The server returned status code " ++ String.fromInt statusCode ++ " white retrieving GTED accounts."
+                                            "The server returned status code " ++ String.fromInt statusCode ++ " white retrieving Whitepages entries."
 
                                         BadBody errorMessage ->
-                                            "There was an error parsing GTED accounts: " ++ errorMessage ++ "."
+                                            "There was an error parsing Whitepages entries: " ++ errorMessage ++ "."
                                      )
                                         ++ " Reload the page to try again."
                                     )
@@ -1429,152 +1458,98 @@ viewPerson model =
 
                         _ ->
                             []
+                   )
+                ++ (case model.keycloakAccount of
+                        Just (Err (BadStatus 404)) ->
+                            []
 
-                Nothing ->
-                    []
-             )
-                ++ (case model.selectedDirectoryId of
-                        Just _ ->
-                            case model.whitepagesEntries of
-                                Just (Err (BadStatus 404)) ->
-                                    []
+                        Just (Err err) ->
+                            [ div [ class "alert", class "alert-danger" ]
+                                [ text
+                                    ((case err of
+                                        BadUrl errorMessage ->
+                                            errorMessage
 
-                                Just (Err err) ->
-                                    [ div [ class "alert", class "alert-danger" ]
-                                        [ text
-                                            ((case err of
-                                                BadUrl errorMessage ->
-                                                    errorMessage
+                                        Timeout ->
+                                            "There was a timeout while retrieving the Keycloak account."
 
-                                                Timeout ->
-                                                    "There was a timeout while retrieving Whitepages entries."
+                                        NetworkError ->
+                                            "There was a network error while retrieving the Keycloak account."
 
-                                                NetworkError ->
-                                                    "There was a network error while retrieving Whitepages entries."
+                                        BadStatus statusCode ->
+                                            "The server returned status code " ++ String.fromInt statusCode ++ " white retrieving the Keycloak account."
 
-                                                BadStatus statusCode ->
-                                                    "The server returned status code " ++ String.fromInt statusCode ++ " white retrieving Whitepages entries."
+                                        BadBody errorMessage ->
+                                            "There was an error parsing the Keycloak account: " ++ errorMessage ++ "."
+                                     )
+                                        ++ " Reload the page to try again."
+                                    )
+                                ]
+                            ]
 
-                                                BadBody errorMessage ->
-                                                    "There was an error parsing Whitepages entries: " ++ errorMessage ++ "."
-                                             )
-                                                ++ " Reload the page to try again."
-                                            )
-                                        ]
-                                    ]
-
-                                _ ->
-                                    []
-
-                        Nothing ->
+                        _ ->
                             []
                    )
-                ++ (case model.selectedDirectoryId of
-                        Just _ ->
-                            case model.keycloakAccount of
-                                Just (Err (BadStatus 404)) ->
-                                    []
+                ++ (case model.apiaryUser of
+                        Just (Err (BadStatus 404)) ->
+                            []
 
-                                Just (Err err) ->
-                                    [ div [ class "alert", class "alert-danger" ]
-                                        [ text
-                                            ((case err of
-                                                BadUrl errorMessage ->
-                                                    errorMessage
+                        Just (Err err) ->
+                            [ div [ class "alert", class "alert-danger" ]
+                                [ text
+                                    ((case err of
+                                        BadUrl errorMessage ->
+                                            errorMessage
 
-                                                Timeout ->
-                                                    "There was a timeout while retrieving the Keycloak account."
+                                        Timeout ->
+                                            "There was a timeout while retrieving the Apiary user."
 
-                                                NetworkError ->
-                                                    "There was a network error while retrieving the Keycloak account."
+                                        NetworkError ->
+                                            "There was a network error while retrieving the Apiary user."
 
-                                                BadStatus statusCode ->
-                                                    "The server returned status code " ++ String.fromInt statusCode ++ " white retrieving the Keycloak account."
+                                        BadStatus statusCode ->
+                                            "The server returned status code " ++ String.fromInt statusCode ++ " while retrieving the Apiary user."
 
-                                                BadBody errorMessage ->
-                                                    "There was an error parsing the Keycloak account: " ++ errorMessage ++ "."
-                                             )
-                                                ++ " Reload the page to try again."
-                                            )
-                                        ]
-                                    ]
+                                        BadBody errorMessage ->
+                                            "There was an error parsing the Apiary user: " ++ errorMessage ++ "."
+                                     )
+                                        ++ " Reload the page to try again."
+                                    )
+                                ]
+                            ]
 
-                                _ ->
-                                    []
-
-                        Nothing ->
+                        _ ->
                             []
                    )
-                ++ (case model.selectedDirectoryId of
-                        Just _ ->
-                            case model.apiaryUser of
-                                Just (Err (BadStatus 404)) ->
-                                    []
-
-                                Just (Err err) ->
-                                    [ div [ class "alert", class "alert-danger" ]
-                                        [ text
-                                            ((case err of
-                                                BadUrl errorMessage ->
-                                                    errorMessage
-
-                                                Timeout ->
-                                                    "There was a timeout while retrieving the Apiary user."
-
-                                                NetworkError ->
-                                                    "There was a network error while retrieving the Apiary user."
-
-                                                BadStatus statusCode ->
-                                                    "The server returned status code " ++ String.fromInt statusCode ++ " while retrieving the Apiary user."
-
-                                                BadBody errorMessage ->
-                                                    "There was an error parsing the Apiary user: " ++ errorMessage ++ "."
-                                             )
-                                                ++ " Reload the page to try again."
-                                            )
-                                        ]
-                                    ]
-
-                                _ ->
-                                    []
-
-                        Nothing ->
+                ++ (case model.events of
+                        Just (Err (BadStatus 404)) ->
                             []
-                   )
-                ++ (case model.selectedDirectoryId of
-                        Just _ ->
-                            case model.events of
-                                Just (Err (BadStatus 404)) ->
-                                    []
 
-                                Just (Err err) ->
-                                    [ div [ class "alert", class "alert-danger" ]
-                                        [ text
-                                            ((case err of
-                                                BadUrl errorMessage ->
-                                                    errorMessage
+                        Just (Err err) ->
+                            [ div [ class "alert", class "alert-danger" ]
+                                [ text
+                                    ((case err of
+                                        BadUrl errorMessage ->
+                                            errorMessage
 
-                                                Timeout ->
-                                                    "There was a timeout while retrieving events."
+                                        Timeout ->
+                                            "There was a timeout while retrieving events."
 
-                                                NetworkError ->
-                                                    "There was a network error while retrieving events."
+                                        NetworkError ->
+                                            "There was a network error while retrieving events."
 
-                                                BadStatus statusCode ->
-                                                    "The server returned status code " ++ String.fromInt statusCode ++ " white retrieving events."
+                                        BadStatus statusCode ->
+                                            "The server returned status code " ++ String.fromInt statusCode ++ " white retrieving events."
 
-                                                BadBody errorMessage ->
-                                                    "There was an error parsing events: " ++ errorMessage ++ "."
-                                             )
-                                                ++ " Reload the page to try again."
-                                            )
-                                        ]
-                                    ]
+                                        BadBody errorMessage ->
+                                            "There was an error parsing events: " ++ errorMessage ++ "."
+                                     )
+                                        ++ " Reload the page to try again."
+                                    )
+                                ]
+                            ]
 
-                                _ ->
-                                    []
-
-                        Nothing ->
+                        _ ->
                             []
                    )
                 ++ -- show name
@@ -2403,24 +2378,19 @@ renderAppStatusBadge badge =
 
 membershipActiveBadge : Model -> Html msg
 membershipActiveBadge model =
-    case model.selectedDirectoryId of
-        Just _ ->
-            case model.apiaryUser of
-                Just (Ok (Just apiaryUser)) ->
-                    if apiaryUser.isActive then
-                        renderAppStatusBadge { status = Success, label = "Membership active", tooltip = "User is membership active in Apiary", link = Nothing }
+    case model.apiaryUser of
+        Just (Ok (Just apiaryUser)) ->
+            if apiaryUser.isActive then
+                renderAppStatusBadge { status = Success, label = "Membership active", tooltip = "User is membership active in Apiary", link = Nothing }
 
-                    else
-                        renderAppStatusBadge { status = Danger, label = "Membership active", tooltip = "User is membership inactive in Apiary", link = Nothing }
+            else
+                renderAppStatusBadge { status = Danger, label = "Membership active", tooltip = "User is membership inactive in Apiary", link = Nothing }
 
-                Just (Ok Nothing) ->
-                    renderAppStatusBadge { status = Danger, label = "Membership active", tooltip = "User does not have an Apiary account", link = Nothing }
+        Just (Ok Nothing) ->
+            renderAppStatusBadge { status = Danger, label = "Membership active", tooltip = "User does not have an Apiary account", link = Nothing }
 
-                Just (Err _) ->
-                    renderAppStatusBadge { status = Loading, label = "Membership active", tooltip = "Error loading Apiary user", link = Nothing }
-
-                Nothing ->
-                    renderAppStatusBadge { status = Loading, label = "Membership active", tooltip = "User is membership active in Apiary", link = Nothing }
+        Just (Err _) ->
+            renderAppStatusBadge { status = Loading, label = "Membership active", tooltip = "Error loading Apiary user", link = Nothing }
 
         Nothing ->
             renderAppStatusBadge { status = Loading, label = "Membership active", tooltip = "User is membership active in Apiary", link = Nothing }
@@ -2428,24 +2398,19 @@ membershipActiveBadge model =
 
 signedLatestAgreementBadge : Model -> Html msg
 signedLatestAgreementBadge model =
-    case model.selectedDirectoryId of
-        Just _ ->
-            case model.apiaryUser of
-                Just (Ok (Just apiaryUser)) ->
-                    if apiaryUser.signedLatestAgreement then
-                        renderAppStatusBadge { status = Success, label = "Signed latest agreement", tooltip = "User has signed the latest agreement", link = Nothing }
+    case model.apiaryUser of
+        Just (Ok (Just apiaryUser)) ->
+            if apiaryUser.signedLatestAgreement then
+                renderAppStatusBadge { status = Success, label = "Signed latest agreement", tooltip = "User has signed the latest agreement", link = Nothing }
 
-                    else
-                        renderAppStatusBadge { status = Danger, label = "Signed latest agreement", tooltip = "User has not signed the latest agreement", link = Nothing }
+            else
+                renderAppStatusBadge { status = Danger, label = "Signed latest agreement", tooltip = "User has not signed the latest agreement", link = Nothing }
 
-                Just (Ok Nothing) ->
-                    renderAppStatusBadge { status = Danger, label = "Signed latest agreement", tooltip = "User does not have an Apiary account", link = Nothing }
+        Just (Ok Nothing) ->
+            renderAppStatusBadge { status = Danger, label = "Signed latest agreement", tooltip = "User does not have an Apiary account", link = Nothing }
 
-                Just (Err _) ->
-                    renderAppStatusBadge { status = Loading, label = "Signed latest agreement", tooltip = "Error loading Apiary user", link = Nothing }
-
-                Nothing ->
-                    renderAppStatusBadge { status = Loading, label = "Signed latest agreement", tooltip = "User has signed the latest agreement", link = Nothing }
+        Just (Err _) ->
+            renderAppStatusBadge { status = Loading, label = "Signed latest agreement", tooltip = "Error loading Apiary user", link = Nothing }
 
         Nothing ->
             renderAppStatusBadge { status = Loading, label = "Signed latest agreement", tooltip = "User has signed the latest agreement", link = Nothing }
@@ -2453,24 +2418,19 @@ signedLatestAgreementBadge model =
 
 accessActiveBadge : Model -> Html msg
 accessActiveBadge model =
-    case model.selectedDirectoryId of
-        Just _ ->
-            case model.apiaryUser of
-                Just (Ok (Just apiaryUser)) ->
-                    if apiaryUser.isAccessActive then
-                        renderAppStatusBadge { status = Success, label = "Access active", tooltip = "User is access active in Apiary", link = Nothing }
+    case model.apiaryUser of
+        Just (Ok (Just apiaryUser)) ->
+            if apiaryUser.isAccessActive then
+                renderAppStatusBadge { status = Success, label = "Access active", tooltip = "User is access active in Apiary", link = Nothing }
 
-                    else
-                        renderAppStatusBadge { status = Danger, label = "Access active", tooltip = "User is access inactive in Apiary", link = Nothing }
+            else
+                renderAppStatusBadge { status = Danger, label = "Access active", tooltip = "User is access inactive in Apiary", link = Nothing }
 
-                Just (Ok Nothing) ->
-                    renderAppStatusBadge { status = Danger, label = "Access active", tooltip = "User does not have an Apiary account", link = Nothing }
+        Just (Ok Nothing) ->
+            renderAppStatusBadge { status = Danger, label = "Access active", tooltip = "User does not have an Apiary account", link = Nothing }
 
-                Just (Err _) ->
-                    renderAppStatusBadge { status = Loading, label = "Access active", tooltip = "Error loading Apiary user", link = Nothing }
-
-                Nothing ->
-                    renderAppStatusBadge { status = Loading, label = "Access active", tooltip = "User is access active in Apiary", link = Nothing }
+        Just (Err _) ->
+            renderAppStatusBadge { status = Loading, label = "Access active", tooltip = "Error loading Apiary user", link = Nothing }
 
         Nothing ->
             renderAppStatusBadge { status = Loading, label = "Access active", tooltip = "User is access active in Apiary", link = Nothing }
@@ -2478,24 +2438,19 @@ accessActiveBadge model =
 
 anyTeamMembershipBadge : Model -> Html msg
 anyTeamMembershipBadge model =
-    case model.selectedDirectoryId of
-        Just _ ->
-            case model.apiaryUser of
-                Just (Ok (Just apiaryUser)) ->
-                    if List.length apiaryUser.teams > 0 then
-                        renderAppStatusBadge { status = Success, label = "Team membership", tooltip = "User is a member of " ++ String.fromInt (List.length apiaryUser.teams) ++ " teams in Apiary", link = Nothing }
+    case model.apiaryUser of
+        Just (Ok (Just apiaryUser)) ->
+            if List.length apiaryUser.teams > 0 then
+                renderAppStatusBadge { status = Success, label = "Team membership", tooltip = "User is a member of " ++ String.fromInt (List.length apiaryUser.teams) ++ " teams in Apiary", link = Nothing }
 
-                    else
-                        renderAppStatusBadge { status = Danger, label = "Team membership", tooltip = "User is not a member of any teams in Apiary", link = Nothing }
+            else
+                renderAppStatusBadge { status = Danger, label = "Team membership", tooltip = "User is not a member of any teams in Apiary", link = Nothing }
 
-                Just (Ok Nothing) ->
-                    renderAppStatusBadge { status = Danger, label = "Team membership", tooltip = "User does not have an Apiary account", link = Nothing }
+        Just (Ok Nothing) ->
+            renderAppStatusBadge { status = Danger, label = "Team membership", tooltip = "User does not have an Apiary account", link = Nothing }
 
-                Just (Err _) ->
-                    renderAppStatusBadge { status = Loading, label = "Team membership", tooltip = "Error loading Apiary user", link = Nothing }
-
-                Nothing ->
-                    renderAppStatusBadge { status = Loading, label = "Team membership", tooltip = "User is access active in Apiary", link = Nothing }
+        Just (Err _) ->
+            renderAppStatusBadge { status = Loading, label = "Team membership", tooltip = "Error loading Apiary user", link = Nothing }
 
         Nothing ->
             renderAppStatusBadge { status = Loading, label = "Team membership", tooltip = "User is access active in Apiary", link = Nothing }
@@ -2503,39 +2458,34 @@ anyTeamMembershipBadge model =
 
 elevatedRoleBadge : Model -> Html msg
 elevatedRoleBadge model =
-    case model.selectedDirectoryId of
-        Just _ ->
-            case model.apiaryUser of
-                Just (Ok (Just apiaryUser)) ->
-                    if List.length (List.filter (\role -> role /= "member" && role /= "non-member") apiaryUser.roles) > 0 then
-                        renderAppStatusBadge
-                            { status = Success
-                            , label = "Elevated role"
-                            , tooltip =
-                                "User has "
-                                    ++ String.join " and " (List.filter (\role -> role /= "member" && role /= "non-member") apiaryUser.roles)
-                                    ++ " role"
-                                    ++ (if List.length (List.filter (\role -> role /= "member" && role /= "non-member") apiaryUser.roles) > 1 then
-                                            "s"
+    case model.apiaryUser of
+        Just (Ok (Just apiaryUser)) ->
+            if List.length (List.filter (\role -> role /= "member" && role /= "non-member") apiaryUser.roles) > 0 then
+                renderAppStatusBadge
+                    { status = Success
+                    , label = "Elevated role"
+                    , tooltip =
+                        "User has "
+                            ++ String.join " and " (List.filter (\role -> role /= "member" && role /= "non-member") apiaryUser.roles)
+                            ++ " role"
+                            ++ (if List.length (List.filter (\role -> role /= "member" && role /= "non-member") apiaryUser.roles) > 1 then
+                                    "s"
 
-                                        else
-                                            ""
-                                       )
-                                    ++ " in Apiary"
-                            , link = Nothing
-                            }
+                                else
+                                    ""
+                               )
+                            ++ " in Apiary"
+                    , link = Nothing
+                    }
 
-                    else
-                        renderAppStatusBadge { status = Danger, label = "Elevated role", tooltip = "User does not have any elevated roles in Apiary", link = Nothing }
+            else
+                renderAppStatusBadge { status = Danger, label = "Elevated role", tooltip = "User does not have any elevated roles in Apiary", link = Nothing }
 
-                Just (Ok Nothing) ->
-                    renderAppStatusBadge { status = Danger, label = "Elevated role", tooltip = "User does not have an Apiary account", link = Nothing }
+        Just (Ok Nothing) ->
+            renderAppStatusBadge { status = Danger, label = "Elevated role", tooltip = "User does not have an Apiary account", link = Nothing }
 
-                Just (Err _) ->
-                    renderAppStatusBadge { status = Loading, label = "Elevated role", tooltip = "Error loading Apiary user", link = Nothing }
-
-                Nothing ->
-                    renderAppStatusBadge { status = Loading, label = "Elevated role", tooltip = "User has roles in Apiary", link = Nothing }
+        Just (Err _) ->
+            renderAppStatusBadge { status = Loading, label = "Elevated role", tooltip = "Error loading Apiary user", link = Nothing }
 
         Nothing ->
             renderAppStatusBadge { status = Loading, label = "Elevated role", tooltip = "User has roles in Apiary", link = Nothing }
@@ -2543,24 +2493,19 @@ elevatedRoleBadge model =
 
 teamMembershipWithGroupBadge : Model -> Html msg
 teamMembershipWithGroupBadge model =
-    case model.selectedDirectoryId of
-        Just _ ->
-            case model.apiaryUser of
-                Just (Ok (Just apiaryUser)) ->
-                    if List.length (List.filter (\team -> team.googleGroupEmail /= Nothing) apiaryUser.teams) > 0 then
-                        renderAppStatusBadge { status = Success, label = "Team membership", tooltip = "User is a member of " ++ String.fromInt (List.length (List.filter (\team -> team.googleGroupEmail /= Nothing) apiaryUser.teams)) ++ " teams in Apiary with Google Groups associated", link = Nothing }
+    case model.apiaryUser of
+        Just (Ok (Just apiaryUser)) ->
+            if List.length (List.filter (\team -> team.googleGroupEmail /= Nothing) apiaryUser.teams) > 0 then
+                renderAppStatusBadge { status = Success, label = "Team membership", tooltip = "User is a member of " ++ String.fromInt (List.length (List.filter (\team -> team.googleGroupEmail /= Nothing) apiaryUser.teams)) ++ " teams in Apiary with Google Groups associated", link = Nothing }
 
-                    else
-                        renderAppStatusBadge { status = Danger, label = "Team membership", tooltip = "User is not a member of any teams in Apiary with Google Groups associated", link = Nothing }
+            else
+                renderAppStatusBadge { status = Danger, label = "Team membership", tooltip = "User is not a member of any teams in Apiary with Google Groups associated", link = Nothing }
 
-                Just (Ok Nothing) ->
-                    renderAppStatusBadge { status = Danger, label = "Team membership", tooltip = "User does not have an Apiary account", link = Nothing }
+        Just (Ok Nothing) ->
+            renderAppStatusBadge { status = Danger, label = "Team membership", tooltip = "User does not have an Apiary account", link = Nothing }
 
-                Just (Err _) ->
-                    renderAppStatusBadge { status = Loading, label = "Team membership", tooltip = "Error loading Apiary user", link = Nothing }
-
-                Nothing ->
-                    renderAppStatusBadge { status = Loading, label = "Team membership", tooltip = "User is access active in Apiary", link = Nothing }
+        Just (Err _) ->
+            renderAppStatusBadge { status = Loading, label = "Team membership", tooltip = "Error loading Apiary user", link = Nothing }
 
         Nothing ->
             renderAppStatusBadge { status = Loading, label = "Team membership", tooltip = "User is access active in Apiary", link = Nothing }
@@ -2568,24 +2513,19 @@ teamMembershipWithGroupBadge model =
 
 teamMembershipWithGrouperBadge : Model -> Html msg
 teamMembershipWithGrouperBadge model =
-    case model.selectedDirectoryId of
-        Just _ ->
-            case model.apiaryUser of
-                Just (Ok (Just apiaryUser)) ->
-                    if List.length (List.filter (\team -> List.member (String.toLower team.displayName) (List.map String.toLower model.grouperGroups)) apiaryUser.teams) > 0 then
-                        renderAppStatusBadge { status = Success, label = "Team membership", tooltip = "User is a member of " ++ String.fromInt (List.length (List.filter (\team -> List.member (String.toLower team.displayName) (List.map String.toLower model.grouperGroups)) apiaryUser.teams)) ++ " teams in Apiary with Grouper groups", link = Nothing }
+    case model.apiaryUser of
+        Just (Ok (Just apiaryUser)) ->
+            if List.length (List.filter (\team -> List.member (String.toLower team.displayName) (List.map String.toLower model.grouperGroups)) apiaryUser.teams) > 0 then
+                renderAppStatusBadge { status = Success, label = "Team membership", tooltip = "User is a member of " ++ String.fromInt (List.length (List.filter (\team -> List.member (String.toLower team.displayName) (List.map String.toLower model.grouperGroups)) apiaryUser.teams)) ++ " teams in Apiary with Grouper groups", link = Nothing }
 
-                    else
-                        renderAppStatusBadge { status = Danger, label = "Team membership", tooltip = "User is not a member of any teams in Apiary with Grouper groups", link = Nothing }
+            else
+                renderAppStatusBadge { status = Danger, label = "Team membership", tooltip = "User is not a member of any teams in Apiary with Grouper groups", link = Nothing }
 
-                Just (Ok Nothing) ->
-                    renderAppStatusBadge { status = Danger, label = "Team membership", tooltip = "User does not have an Apiary account", link = Nothing }
+        Just (Ok Nothing) ->
+            renderAppStatusBadge { status = Danger, label = "Team membership", tooltip = "User does not have an Apiary account", link = Nothing }
 
-                Just (Err _) ->
-                    renderAppStatusBadge { status = Loading, label = "Team membership", tooltip = "Error loading Apiary user", link = Nothing }
-
-                Nothing ->
-                    renderAppStatusBadge { status = Loading, label = "Team membership", tooltip = "User is access active in Apiary", link = Nothing }
+        Just (Err _) ->
+            renderAppStatusBadge { status = Loading, label = "Team membership", tooltip = "Error loading Apiary user", link = Nothing }
 
         Nothing ->
             renderAppStatusBadge { status = Loading, label = "Team membership", tooltip = "User is access active in Apiary", link = Nothing }
@@ -2596,67 +2536,57 @@ googleWorkspaceKeycloakProvisionedBadge model =
     let
         badgeLink : Maybe String
         badgeLink =
-            case model.selectedDirectoryId of
-                Just _ ->
-                    case model.keycloakAccount of
-                        Just (Ok (Just _)) ->
-                            Just (model.keycloakDeepLinkBaseUrl ++ getKeycloakUserId model ++ "/settings")
-
-                        _ ->
-                            Nothing
+            case model.keycloakAccount of
+                Just (Ok (Just _)) ->
+                    Just (model.keycloakDeepLinkBaseUrl ++ getKeycloakUserId model ++ "/settings")
 
                 _ ->
                     Nothing
     in
-    case model.selectedDirectoryId of
-        Just _ ->
-            case model.googleWorkspaceAccount of
-                Just (Ok (Just googleWorkspaceAccount)) ->
-                    case model.keycloakAccount of
-                        Just (Ok (Just keycloakAccount)) ->
-                            if keycloakAccount.enabled then
-                                if List.head (Maybe.withDefault [] (Dict.get "googleWorkspaceAccount" (Maybe.withDefault Dict.empty keycloakAccount.attributes))) == Just googleWorkspaceAccount.primaryEmail then
-                                    renderAppStatusBadge { status = Success, label = "Keycloak", tooltip = "Keycloak account is enabled and configured for single sign-on with Google Workspace", link = badgeLink }
+    case model.googleWorkspaceAccount of
+        Just (Ok (Just googleWorkspaceAccount)) ->
+            case model.keycloakAccount of
+                Just (Ok (Just keycloakAccount)) ->
+                    if keycloakAccount.enabled then
+                        if List.head (Maybe.withDefault [] (Dict.get "googleWorkspaceAccount" (Maybe.withDefault Dict.empty keycloakAccount.attributes))) == Just googleWorkspaceAccount.primaryEmail then
+                            renderAppStatusBadge { status = Success, label = "Keycloak", tooltip = "Keycloak account is enabled and configured for single sign-on with Google Workspace", link = badgeLink }
 
-                                else
-                                    renderAppStatusBadge { status = Danger, label = "Keycloak", tooltip = "Keycloak account isn't configured for single sign-on with Google Workspace", link = badgeLink }
+                        else
+                            renderAppStatusBadge { status = Danger, label = "Keycloak", tooltip = "Keycloak account isn't configured for single sign-on with Google Workspace", link = badgeLink }
 
-                            else
-                                renderAppStatusBadge { status = Danger, label = "Keycloak", tooltip = "Keycloak account is disabled", link = badgeLink }
+                    else
+                        renderAppStatusBadge { status = Danger, label = "Keycloak", tooltip = "Keycloak account is disabled", link = badgeLink }
 
-                        Just (Err _) ->
-                            renderAppStatusBadge { status = Loading, label = "Keycloak", tooltip = "Error loading Keycloak account", link = badgeLink }
-
-                        Just (Ok Nothing) ->
-                            renderAppStatusBadge { status = Danger, label = "Keycloak", tooltip = "User doesn't have a Keycloak account", link = badgeLink }
-
-                        Nothing ->
-                            renderAppStatusBadge { status = Loading, label = "Keycloak", tooltip = "Error loading Keycloak account", link = badgeLink }
+                Just (Err _) ->
+                    renderAppStatusBadge { status = Loading, label = "Keycloak", tooltip = "Error loading Keycloak account", link = badgeLink }
 
                 Just (Ok Nothing) ->
-                    case model.keycloakAccount of
-                        Just (Ok (Just keycloakAccount)) ->
-                            if keycloakAccount.enabled then
-                                renderAppStatusBadge { status = Danger, label = "Keycloak", tooltip = "Keycloak account isn't configured for single sign-on with Google Workspace", link = badgeLink }
+                    renderAppStatusBadge { status = Danger, label = "Keycloak", tooltip = "User doesn't have a Keycloak account", link = badgeLink }
 
-                            else
-                                renderAppStatusBadge { status = Danger, label = "Keycloak", tooltip = "Keycloak account is disabled", link = badgeLink }
+                Nothing ->
+                    renderAppStatusBadge { status = Loading, label = "Keycloak", tooltip = "Error loading Keycloak account", link = badgeLink }
 
-                        Just (Ok Nothing) ->
-                            renderAppStatusBadge
-                                { status = Danger, label = "Keycloak", tooltip = "User doesn't have a Keycloak account", link = badgeLink }
+        Just (Ok Nothing) ->
+            case model.keycloakAccount of
+                Just (Ok (Just keycloakAccount)) ->
+                    if keycloakAccount.enabled then
+                        renderAppStatusBadge { status = Danger, label = "Keycloak", tooltip = "Keycloak account isn't configured for single sign-on with Google Workspace", link = badgeLink }
 
-                        Just (Err _) ->
-                            renderAppStatusBadge { status = Loading, label = "Keycloak", tooltip = "Error loading Keycloak account", link = badgeLink }
+                    else
+                        renderAppStatusBadge { status = Danger, label = "Keycloak", tooltip = "Keycloak account is disabled", link = badgeLink }
 
-                        Nothing ->
-                            renderAppStatusBadge { status = Loading, label = "Keycloak", tooltip = "User doesn't have a Keycloak account", link = badgeLink }
+                Just (Ok Nothing) ->
+                    renderAppStatusBadge
+                        { status = Danger, label = "Keycloak", tooltip = "User doesn't have a Keycloak account", link = badgeLink }
 
                 Just (Err _) ->
                     renderAppStatusBadge { status = Loading, label = "Keycloak", tooltip = "Error loading Keycloak account", link = badgeLink }
 
                 Nothing ->
-                    renderAppStatusBadge { status = Loading, label = "Keycloak", tooltip = "User has a Keycloak account", link = badgeLink }
+                    renderAppStatusBadge { status = Loading, label = "Keycloak", tooltip = "User doesn't have a Keycloak account", link = badgeLink }
+
+        Just (Err _) ->
+            renderAppStatusBadge { status = Loading, label = "Keycloak", tooltip = "Error loading Keycloak account", link = badgeLink }
 
         Nothing ->
             renderAppStatusBadge { status = Loading, label = "Keycloak", tooltip = "User has a Keycloak account", link = badgeLink }
@@ -2667,36 +2597,26 @@ googleWorkspaceAccountProvisionedBadge model =
     let
         badgeLink : Maybe String
         badgeLink =
-            case model.selectedDirectoryId of
-                Just _ ->
-                    case model.googleWorkspaceAccount of
-                        Just (Ok (Just _)) ->
-                            Just ("https://www.google.com/a/robojackets.org/ServiceLogin?continue=https://admin.google.com/ac/search?query=" ++ getGoogleWorkspacePrimaryEmail model)
-
-                        _ ->
-                            Nothing
+            case model.googleWorkspaceAccount of
+                Just (Ok (Just _)) ->
+                    Just ("https://www.google.com/a/robojackets.org/ServiceLogin?continue=https://admin.google.com/ac/search?query=" ++ getGoogleWorkspacePrimaryEmail model)
 
                 _ ->
                     Nothing
     in
-    case model.selectedDirectoryId of
-        Just _ ->
-            case model.googleWorkspaceAccount of
-                Just (Ok (Just googleWorkspaceAccount)) ->
-                    if googleWorkspaceAccount.suspended then
-                        renderAppStatusBadge { status = Danger, label = "Google Workspace", tooltip = "User has a suspended Google Workspace account", link = badgeLink }
+    case model.googleWorkspaceAccount of
+        Just (Ok (Just googleWorkspaceAccount)) ->
+            if googleWorkspaceAccount.suspended then
+                renderAppStatusBadge { status = Danger, label = "Google Workspace", tooltip = "User has a suspended Google Workspace account", link = badgeLink }
 
-                    else
-                        renderAppStatusBadge { status = Success, label = "Google Workspace", tooltip = "User has an active Google Workspace account", link = badgeLink }
+            else
+                renderAppStatusBadge { status = Success, label = "Google Workspace", tooltip = "User has an active Google Workspace account", link = badgeLink }
 
-                Just (Ok Nothing) ->
-                    renderAppStatusBadge { status = Danger, label = "Google Workspace", tooltip = "User doesn't have a Google Workspace account", link = badgeLink }
+        Just (Ok Nothing) ->
+            renderAppStatusBadge { status = Danger, label = "Google Workspace", tooltip = "User doesn't have a Google Workspace account", link = badgeLink }
 
-                Just (Err _) ->
-                    renderAppStatusBadge { status = Loading, label = "Google Workspace", tooltip = "Error loading Google Workspace account", link = badgeLink }
-
-                Nothing ->
-                    renderAppStatusBadge { status = Loading, label = "Google Workspace", tooltip = "User has a Google Workspace account", link = badgeLink }
+        Just (Err _) ->
+            renderAppStatusBadge { status = Loading, label = "Google Workspace", tooltip = "Error loading Google Workspace account", link = badgeLink }
 
         Nothing ->
             renderAppStatusBadge { status = Loading, label = "Google Workspace", tooltip = "User has a Google Workspace account", link = badgeLink }
@@ -2756,40 +2676,30 @@ googleGroupsProvisioning model =
 
 groupsToShowFromGoogleGroupsResponse : Model -> String -> Set.Set String
 groupsToShowFromGoogleGroupsResponse model thisAccount =
-    case model.selectedDirectoryId of
-        Just _ ->
-            case model.googleGroups of
-                Just (Ok groups) ->
-                    case Dict.get thisAccount groups of
-                        Just (Just thisAccountGroups) ->
-                            Set.fromList (List.filterMap .googleGroupEmail thisAccountGroups)
-
-                        _ ->
-                            Set.empty
+    case model.googleGroups of
+        Just (Ok groups) ->
+            case Dict.get thisAccount groups of
+                Just (Just thisAccountGroups) ->
+                    Set.fromList (List.filterMap .googleGroupEmail thisAccountGroups)
 
                 _ ->
                     Set.empty
 
-        Nothing ->
+        _ ->
             Set.empty
 
 
 groupsToShowFromApiaryResponse : Model -> Set.Set String
 groupsToShowFromApiaryResponse model =
-    case model.selectedDirectoryId of
-        Just _ ->
-            case model.apiaryUser of
-                Just (Ok (Just apiaryUser)) ->
-                    if apiaryUser.isAccessActive then
-                        Set.fromList (List.map String.toLower (List.filterMap .googleGroupEmail apiaryUser.teams))
+    case model.apiaryUser of
+        Just (Ok (Just apiaryUser)) ->
+            if apiaryUser.isAccessActive then
+                Set.fromList (List.map String.toLower (List.filterMap .googleGroupEmail apiaryUser.teams))
 
-                    else
-                        Set.empty
+            else
+                Set.empty
 
-                _ ->
-                    Set.empty
-
-        Nothing ->
+        _ ->
             Set.empty
 
 
@@ -2800,48 +2710,38 @@ allGroupsToShow model thisAccount =
 
 displayNameForGoogleGroupFromGoogleGroupsResponse : Model -> String -> Maybe String
 displayNameForGoogleGroupFromGoogleGroupsResponse model thisGroupEmail =
-    case model.selectedDirectoryId of
-        Just _ ->
-            case model.googleGroups of
-                Just (Ok groups) ->
-                    let
-                        allGroups : List Group
-                        allGroups =
-                            List.concatMap
-                                (\maybeGroupList -> Maybe.withDefault [] maybeGroupList)
-                                (Dict.values groups)
-                    in
-                    case List.head (List.filter (\g -> Maybe.map String.toLower g.googleGroupEmail == Just (String.toLower thisGroupEmail)) allGroups) of
-                        Just matchedGroup ->
-                            Just matchedGroup.displayName
+    case model.googleGroups of
+        Just (Ok groups) ->
+            let
+                allGroups : List Group
+                allGroups =
+                    List.concatMap
+                        (\maybeGroupList -> Maybe.withDefault [] maybeGroupList)
+                        (Dict.values groups)
+            in
+            case List.head (List.filter (\g -> Maybe.map String.toLower g.googleGroupEmail == Just (String.toLower thisGroupEmail)) allGroups) of
+                Just matchedGroup ->
+                    Just matchedGroup.displayName
 
-                        Nothing ->
-                            Nothing
-
-                _ ->
+                Nothing ->
                     Nothing
 
-        Nothing ->
+        _ ->
             Nothing
 
 
 displayNameForGoogleGroupFromApiaryResponse : Model -> String -> Maybe String
 displayNameForGoogleGroupFromApiaryResponse model thisGroupEmail =
-    case model.selectedDirectoryId of
-        Just _ ->
-            case model.apiaryUser of
-                Just (Ok (Just apiaryUser)) ->
-                    case List.head (List.filter (\x -> Maybe.map String.toLower x.googleGroupEmail == Just (String.toLower thisGroupEmail)) apiaryUser.teams) of
-                        Just thisGroup ->
-                            Just thisGroup.displayName
+    case model.apiaryUser of
+        Just (Ok (Just apiaryUser)) ->
+            case List.head (List.filter (\x -> Maybe.map String.toLower x.googleGroupEmail == Just (String.toLower thisGroupEmail)) apiaryUser.teams) of
+                Just thisGroup ->
+                    Just thisGroup.displayName
 
-                        Nothing ->
-                            Nothing
-
-                _ ->
+                Nothing ->
                     Nothing
 
-        Nothing ->
+        _ ->
             Nothing
 
 
@@ -2863,75 +2763,65 @@ displayNameForGoogleGroup model thisGroupEmail =
 getAppStatusBadgeForGroup : Model -> String -> String -> AppStatusBadge
 getAppStatusBadgeForGroup model thisAccount thisGroupEmail =
     { status =
-        case model.selectedDirectoryId of
-            Just _ ->
-                case model.googleGroups of
-                    Just (Ok groups) ->
-                        case Dict.get thisAccount groups of
-                            Just (Just thisAccountGroups) ->
-                                if List.any (\g -> Maybe.map String.toLower g.googleGroupEmail == Just (String.toLower thisGroupEmail)) thisAccountGroups then
-                                    case model.apiaryUser of
-                                        Just (Ok (Just apiaryUser)) ->
-                                            if List.any (\g -> Maybe.map String.toLower g.googleGroupEmail == Just (String.toLower thisGroupEmail)) apiaryUser.teams then
-                                                Success
+        case model.googleGroups of
+            Just (Ok groups) ->
+                case Dict.get thisAccount groups of
+                    Just (Just thisAccountGroups) ->
+                        if List.any (\g -> Maybe.map String.toLower g.googleGroupEmail == Just (String.toLower thisGroupEmail)) thisAccountGroups then
+                            case model.apiaryUser of
+                                Just (Ok (Just apiaryUser)) ->
+                                    if List.any (\g -> Maybe.map String.toLower g.googleGroupEmail == Just (String.toLower thisGroupEmail)) apiaryUser.teams then
+                                        Success
 
-                                            else
-                                                Info
+                                    else
+                                        Info
 
-                                        Just (Ok Nothing) ->
-                                            Info
+                                Just (Ok Nothing) ->
+                                    Info
 
-                                        Just (Err _) ->
-                                            Loading
+                                Just (Err _) ->
+                                    Loading
 
-                                        Nothing ->
-                                            Info
+                                Nothing ->
+                                    Info
 
-                                else
-                                    Danger
-
-                            _ ->
-                                Danger
+                        else
+                            Danger
 
                     _ ->
-                        Loading
+                        Danger
 
             _ ->
                 Loading
     , label = displayNameForGoogleGroup model (String.toLower thisGroupEmail)
     , tooltip =
-        case model.selectedDirectoryId of
-            Just _ ->
-                case model.googleGroups of
-                    Just (Ok groups) ->
-                        case Dict.get thisAccount groups of
-                            Just (Just thisAccountGroups) ->
-                                if List.any (\g -> Maybe.map String.toLower g.googleGroupEmail == Just (String.toLower thisGroupEmail)) thisAccountGroups then
-                                    case model.apiaryUser of
-                                        Just (Ok (Just apiaryUser)) ->
-                                            if List.any (\g -> Maybe.map String.toLower g.googleGroupEmail == Just (String.toLower thisGroupEmail)) apiaryUser.teams then
-                                                "User is in the " ++ displayNameForGoogleGroup model (String.toLower thisGroupEmail) ++ " team in Apiary, and is provisioned in the corresponding Google Group"
+        case model.googleGroups of
+            Just (Ok groups) ->
+                case Dict.get thisAccount groups of
+                    Just (Just thisAccountGroups) ->
+                        if List.any (\g -> Maybe.map String.toLower g.googleGroupEmail == Just (String.toLower thisGroupEmail)) thisAccountGroups then
+                            case model.apiaryUser of
+                                Just (Ok (Just apiaryUser)) ->
+                                    if List.any (\g -> Maybe.map String.toLower g.googleGroupEmail == Just (String.toLower thisGroupEmail)) apiaryUser.teams then
+                                        "User is in the " ++ displayNameForGoogleGroup model (String.toLower thisGroupEmail) ++ " team in Apiary, and is provisioned in the corresponding Google Group"
 
-                                            else
-                                                "User is in the " ++ displayNameForGoogleGroup model (String.toLower thisGroupEmail) ++ " group, but not in any corresponding Apiary team"
+                                    else
+                                        "User is in the " ++ displayNameForGoogleGroup model (String.toLower thisGroupEmail) ++ " group, but not in any corresponding Apiary team"
 
-                                        Just (Ok Nothing) ->
-                                            "User is in the " ++ displayNameForGoogleGroup model (String.toLower thisGroupEmail) ++ " group, but doesn't have an Apiary account"
+                                Just (Ok Nothing) ->
+                                    "User is in the " ++ displayNameForGoogleGroup model (String.toLower thisGroupEmail) ++ " group, but doesn't have an Apiary account"
 
-                                        Just (Err _) ->
-                                            ""
+                                Just (Err _) ->
+                                    ""
 
-                                        Nothing ->
-                                            ""
+                                Nothing ->
+                                    ""
 
-                                else
-                                    "User is in the " ++ displayNameForGoogleGroup model (String.toLower thisGroupEmail) ++ " team in Apiary, but isn't provisioned in the corresponding Google Group"
-
-                            _ ->
-                                "User is in the " ++ displayNameForGoogleGroup model (String.toLower thisGroupEmail) ++ " team in Apiary, but isn't provisioned in the corresponding Google Group"
+                        else
+                            "User is in the " ++ displayNameForGoogleGroup model (String.toLower thisGroupEmail) ++ " team in Apiary, but isn't provisioned in the corresponding Google Group"
 
                     _ ->
-                        ""
+                        "User is in the " ++ displayNameForGoogleGroup model (String.toLower thisGroupEmail) ++ " team in Apiary, but isn't provisioned in the corresponding Google Group"
 
             _ ->
                 ""
@@ -2978,102 +2868,77 @@ googleGroupAccountProvisioning model thisAccount =
 
 grouperGroupProvisioningBadge : Model -> Html msg
 grouperGroupProvisioningBadge model =
-    case model.selectedDirectoryId of
-        Just _ ->
-            case model.grouperMemberships of
-                Just (Ok memberships) ->
-                    if List.member "general" memberships then
-                        renderAppStatusBadge { status = Success, label = "Grouper", tooltip = "User is in the general Grouper group in Grouper", link = Nothing }
+    case model.grouperMemberships of
+        Just (Ok memberships) ->
+            if List.member "general" memberships then
+                renderAppStatusBadge { status = Success, label = "Grouper", tooltip = "User is in the general Grouper group in Grouper", link = Nothing }
 
-                    else
-                        renderAppStatusBadge { status = Danger, label = "Grouper", tooltip = "User is not in the general Grouper group in Grouper", link = Nothing }
-
-                Nothing ->
-                    renderAppStatusBadge { status = Loading, label = "Grouper", tooltip = "User is not provisioned in any Grouper groups", link = Nothing }
-
-                Just (Err _) ->
-                    renderAppStatusBadge { status = Loading, label = "Grouper", tooltip = "Error loading Grouper memberships", link = Nothing }
+            else
+                renderAppStatusBadge { status = Danger, label = "Grouper", tooltip = "User is not in the general Grouper group in Grouper", link = Nothing }
 
         Nothing ->
             renderAppStatusBadge { status = Loading, label = "Grouper", tooltip = "User is not provisioned in any Grouper groups", link = Nothing }
 
+        Just (Err _) ->
+            renderAppStatusBadge { status = Loading, label = "Grouper", tooltip = "Error loading Grouper memberships", link = Nothing }
+
 
 gtadGroupProvisioningBadge : Model -> Html msg
 gtadGroupProvisioningBadge model =
-    case model.selectedDirectoryId of
-        Just _ ->
-            case model.gtadAccount of
-                Just (Ok account) ->
-                    if List.member "CN=general_robojackets_services_gt,OU=grouper-prod,OU=Gted,OU=GT_Resources,DC=ad,DC=gatech,DC=edu" (Maybe.withDefault [] (Dict.get "memberOf" account.attributes)) then
-                        renderAppStatusBadge { status = Success, label = "GTAD", tooltip = "User is in the general Grouper group in GTAD", link = Nothing }
+    case model.gtadAccount of
+        Just (Ok account) ->
+            if List.member "CN=general_robojackets_services_gt,OU=grouper-prod,OU=Gted,OU=GT_Resources,DC=ad,DC=gatech,DC=edu" (Maybe.withDefault [] (Dict.get "memberOf" account.attributes)) then
+                renderAppStatusBadge { status = Success, label = "GTAD", tooltip = "User is in the general Grouper group in GTAD", link = Nothing }
 
-                    else
-                        renderAppStatusBadge { status = Danger, label = "GTAD", tooltip = "User is not in the general Grouper group in GTAD", link = Nothing }
-
-                Nothing ->
-                    renderAppStatusBadge { status = Loading, label = "GTAD", tooltip = "User is not provisioned in the general Grouper group in GTAD", link = Nothing }
-
-                Just (Err _) ->
-                    renderAppStatusBadge { status = Loading, label = "GTAD", tooltip = "Error loading GTAD account", link = Nothing }
+            else
+                renderAppStatusBadge { status = Danger, label = "GTAD", tooltip = "User is not in the general Grouper group in GTAD", link = Nothing }
 
         Nothing ->
             renderAppStatusBadge { status = Loading, label = "GTAD", tooltip = "User is not provisioned in the general Grouper group in GTAD", link = Nothing }
 
+        Just (Err _) ->
+            renderAppStatusBadge { status = Loading, label = "GTAD", tooltip = "Error loading GTAD account", link = Nothing }
+
 
 dropboxGtedEligibilityBadge : Model -> Html msg
 dropboxGtedEligibilityBadge model =
-    case model.selectedDirectoryId of
-        Just _ ->
-            case model.gtedAccounts of
-                Just (Ok accounts) ->
-                    if List.any (\account -> List.member "/gt/central/services/dropbox/dropbox-eligible/enabled" account.gtAccountEntitlement) accounts then
-                        renderAppStatusBadge { status = Success, label = "Georgia Tech entitlement", tooltip = "User is eligible for a Georgia Tech Dropbox account", link = Nothing }
+    case model.gtedAccounts of
+        Just (Ok accounts) ->
+            if List.any (\account -> List.member "/gt/central/services/dropbox/dropbox-eligible/enabled" account.gtAccountEntitlement) accounts then
+                renderAppStatusBadge { status = Success, label = "Georgia Tech entitlement", tooltip = "User is eligible for a Georgia Tech Dropbox account", link = Nothing }
 
-                    else
-                        renderAppStatusBadge { status = Danger, label = "Georgia Tech entitlement", tooltip = "User is not eligible for a Georgia Tech Dropbox account", link = Nothing }
-
-                Nothing ->
-                    renderAppStatusBadge { status = Loading, label = "Georgia Tech entitlement", tooltip = "User is not eligible for a Georgia Tech Dropbox account", link = Nothing }
-
-                Just (Err _) ->
-                    renderAppStatusBadge { status = Loading, label = "Georgia Tech entitlement", tooltip = "Error loading GTED accounts", link = Nothing }
+            else
+                renderAppStatusBadge { status = Danger, label = "Georgia Tech entitlement", tooltip = "User is not eligible for a Georgia Tech Dropbox account", link = Nothing }
 
         Nothing ->
             renderAppStatusBadge { status = Loading, label = "Georgia Tech entitlement", tooltip = "User is not eligible for a Georgia Tech Dropbox account", link = Nothing }
 
+        Just (Err _) ->
+            renderAppStatusBadge { status = Loading, label = "Georgia Tech entitlement", tooltip = "Error loading GTED accounts", link = Nothing }
+
 
 dropboxGtedProvisionedBadge : Model -> Html msg
 dropboxGtedProvisionedBadge model =
-    case model.selectedDirectoryId of
-        Just _ ->
-            case model.gtedAccounts of
-                Just (Ok accounts) ->
-                    if List.any (\account -> List.member "/gt/central/services/dropbox/dropbox-access/enabled" account.gtAccountEntitlement) accounts then
-                        renderAppStatusBadge { status = Success, label = "Georgia Tech Dropbox account", tooltip = "User has a Georgia Tech Dropbox account", link = Nothing }
+    case model.gtedAccounts of
+        Just (Ok accounts) ->
+            if List.any (\account -> List.member "/gt/central/services/dropbox/dropbox-access/enabled" account.gtAccountEntitlement) accounts then
+                renderAppStatusBadge { status = Success, label = "Georgia Tech Dropbox account", tooltip = "User has a Georgia Tech Dropbox account", link = Nothing }
 
-                    else
-                        renderAppStatusBadge { status = Danger, label = "Georgia Tech Dropbox account", tooltip = "User does not have a Georgia Tech Dropbox account", link = Nothing }
-
-                Nothing ->
-                    renderAppStatusBadge { status = Loading, label = "Georgia Tech Dropbox account", tooltip = "User does not have a Georgia Tech Dropbox account", link = Nothing }
-
-                Just (Err _) ->
-                    renderAppStatusBadge { status = Loading, label = "Georgia Tech Dropbox account", tooltip = "Error loading GTED accounts", link = Nothing }
+            else
+                renderAppStatusBadge { status = Danger, label = "Georgia Tech Dropbox account", tooltip = "User does not have a Georgia Tech Dropbox account", link = Nothing }
 
         Nothing ->
             renderAppStatusBadge { status = Loading, label = "Georgia Tech Dropbox account", tooltip = "User does not have a Georgia Tech Dropbox account", link = Nothing }
 
+        Just (Err _) ->
+            renderAppStatusBadge { status = Loading, label = "Georgia Tech Dropbox account", tooltip = "Error loading GTED accounts", link = Nothing }
+
 
 hasRecentSumsAttendance : Model -> Bool
 hasRecentSumsAttendance model =
-    case model.selectedDirectoryId of
-        Just _ ->
-            case model.apiaryUser of
-                Just (Ok (Just apiaryUser)) ->
-                    List.any (\attendanceRecord -> attendanceRecord.attendableType == "team" && (not (String.startsWith "remote" (Maybe.withDefault "" attendanceRecord.source)) && Time.posixToMillis attendanceRecord.createdAt > (Time.posixToMillis model.time - 2419200000))) apiaryUser.attendanceRecords
-
-                _ ->
-                    False
+    case model.apiaryUser of
+        Just (Ok (Just apiaryUser)) ->
+            List.any (\attendanceRecord -> attendanceRecord.attendableType == "team" && (not (String.startsWith "remote" (Maybe.withDefault "" attendanceRecord.source)) && Time.posixToMillis attendanceRecord.createdAt > (Time.posixToMillis model.time - 2419200000))) apiaryUser.attendanceRecords
 
         _ ->
             False
@@ -3084,44 +2949,34 @@ recentEligibleAttendanceBadge model =
     let
         recentAttendanceLink : Maybe String
         recentAttendanceLink =
-            case model.selectedDirectoryId of
-                Just _ ->
-                    case model.apiaryUser of
-                        Just (Ok (Just apiaryUser)) ->
-                            case List.head (List.sortWith (\first second -> compare (Time.posixToMillis second.createdAt) (Time.posixToMillis first.createdAt)) (List.filter (\attendanceRecord -> attendanceRecord.attendableType == "team" && not (String.startsWith "remote" (Maybe.withDefault "" attendanceRecord.source))) apiaryUser.attendanceRecords)) of
-                                Just attendanceRecord ->
-                                    Just (Url.Builder.crossOrigin model.apiaryBaseUrl [ "nova", "resources", "attendance", String.fromInt attendanceRecord.id ] [])
+            case model.apiaryUser of
+                Just (Ok (Just apiaryUser)) ->
+                    case List.head (List.sortWith (\first second -> compare (Time.posixToMillis second.createdAt) (Time.posixToMillis first.createdAt)) (List.filter (\attendanceRecord -> attendanceRecord.attendableType == "team" && not (String.startsWith "remote" (Maybe.withDefault "" attendanceRecord.source))) apiaryUser.attendanceRecords)) of
+                        Just attendanceRecord ->
+                            Just (Url.Builder.crossOrigin model.apiaryBaseUrl [ "nova", "resources", "attendance", String.fromInt attendanceRecord.id ] [])
 
-                                Nothing ->
-                                    Nothing
-
-                        _ ->
+                        Nothing ->
                             Nothing
 
                 _ ->
                     Nothing
     in
-    case model.selectedDirectoryId of
-        Just _ ->
-            case model.apiaryUser of
-                Just (Ok (Just _)) ->
-                    if hasRecentSumsAttendance model then
-                        renderAppStatusBadge { status = Success, label = "Recent attendance", tooltip = "User has attended a team meeting in person within the last 4 weeks", link = recentAttendanceLink }
+    case model.apiaryUser of
+        Just (Ok (Just _)) ->
+            if hasRecentSumsAttendance model then
+                renderAppStatusBadge { status = Success, label = "Recent attendance", tooltip = "User has attended a team meeting in person within the last 4 weeks", link = recentAttendanceLink }
 
-                    else
-                        renderAppStatusBadge { status = Danger, label = "Recent attendance", tooltip = "User hasn't attended a team meeting in person within the last 4 weeks", link = recentAttendanceLink }
-
-                Nothing ->
-                    renderAppStatusBadge { status = Loading, label = "Recent attendance", tooltip = "User has attended a team meeting in person within the last 4 weeks", link = recentAttendanceLink }
-
-                Just (Err _) ->
-                    renderAppStatusBadge { status = Loading, label = "Recent attendance", tooltip = "Error loading Apiary account", link = recentAttendanceLink }
-
-                Just (Ok Nothing) ->
-                    renderAppStatusBadge { status = Danger, label = "Recent attendance", tooltip = "User doesn't have an Apiary account", link = recentAttendanceLink }
+            else
+                renderAppStatusBadge { status = Danger, label = "Recent attendance", tooltip = "User hasn't attended a team meeting in person within the last 4 weeks", link = recentAttendanceLink }
 
         Nothing ->
             renderAppStatusBadge { status = Loading, label = "Recent attendance", tooltip = "User has attended a team meeting in person within the last 4 weeks", link = recentAttendanceLink }
+
+        Just (Err _) ->
+            renderAppStatusBadge { status = Loading, label = "Recent attendance", tooltip = "Error loading Apiary account", link = recentAttendanceLink }
+
+        Just (Ok Nothing) ->
+            renderAppStatusBadge { status = Danger, label = "Recent attendance", tooltip = "User doesn't have an Apiary account", link = recentAttendanceLink }
 
 
 sumsBillingGroupsProvisioning : Model -> List (Html msg)
