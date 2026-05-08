@@ -1789,7 +1789,7 @@ viewPerson model =
                         ]
                    , h5 [ class "mt-4", class "mb-3" ] [ text "Directories" ]
                    , div [ class "row", class "mb-4", class "gy-4" ]
-                        [ div [ class "col-6", class "col-md-4" ]
+                        [ div [ class "col-12", class "col-sm-6", class "col-md-4" ]
                             [ div [ class "card" ]
                                 [ div [ class "card-body" ]
                                     ([ h6 [] [ text "Apiary" ]
@@ -1877,7 +1877,7 @@ viewPerson model =
                                     )
                                 ]
                             ]
-                        , div [ class "col-6", class "col-md-4" ]
+                        , div [ class "col-12", class "col-sm-6", class "col-md-4" ]
                             [ div [ class "card" ]
                                 [ div [ class "card-body" ]
                                     ([ h6 [] [ text "Grouper" ]
@@ -1925,7 +1925,7 @@ viewPerson model =
                                     )
                                 ]
                             ]
-                        , div [ class "col-6", class "col-md-4" ]
+                        , div [ class "col-12", class "col-sm-6", class "col-md-4" ]
                             [ div [ class "card" ]
                                 [ div [ class "card-body" ]
                                     ([ h6 [] [ text "GTAD" ]
@@ -1964,7 +1964,7 @@ viewPerson model =
                                     )
                                 ]
                             ]
-                        , div [ class "col-6", class "col-md-4" ]
+                        , div [ class "col-12", class "col-sm-6", class "col-md-4" ]
                             [ div [ class "card" ]
                                 [ div [ class "card-body" ]
                                     ([ h6 [] [ text "GTED" ]
@@ -2020,7 +2020,7 @@ viewPerson model =
                                     )
                                 ]
                             ]
-                        , div [ class "col-6", class "col-md-4" ]
+                        , div [ class "col-12", class "col-sm-6", class "col-md-4" ]
                             [ div [ class "card" ]
                                 [ div [ class "card-body" ]
                                     ([ h6 [] [ text "Keycloak" ]
@@ -2070,7 +2070,7 @@ viewPerson model =
                                     )
                                 ]
                             ]
-                        , div [ class "col-6", class "col-md-4" ]
+                        , div [ class "col-12", class "col-sm-6", class "col-md-4" ]
                             [ div [ class "card" ]
                                 [ div [ class "card-body" ]
                                     ([ h6 [] [ text "Whitepages" ]
