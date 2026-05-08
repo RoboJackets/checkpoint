@@ -900,17 +900,6 @@ searchResultToHtml majors result =
         )
 
 
-searchResultPlaceholder : Html msg
-searchResultPlaceholder =
-    div [ class "mb-4" ]
-        [ h4 [ class "mb-1", class "placeholder-wave" ] [ span [ class "placeholder", class "col-2", class "me-1" ] [], span [ class "placeholder", class "col-3" ] [] ]
-        , div [ class "mb-1", class "placeholder-wave" ] [ span [ class "placeholder", class "col-1", class "me-1" ] [], span [ class "placeholder", class "col-2" ] [] ]
-        , span [ class "badge", class "rounded-pill", class "me-1", class "placeholder", class "placeholder-wave", class "text-bg-secondary", class "text-secondary" ] [ text "former-employee-recent-3yr" ]
-        , span [ class "badge", class "rounded-pill", class "me-1", class "placeholder", class "placeholder-wave", class "text-bg-secondary", class "text-secondary" ] [ text "full-time-employee" ]
-        , span [ class "badge", class "rounded-pill", class "me-1", class "placeholder", class "placeholder-wave", class "text-bg-secondary", class "text-secondary" ] [ text "former-credit-student" ]
-        ]
-
-
 renderNavbar : Model -> Html Msg
 renderNavbar model =
     nav [ class "navbar", class "navbar-expand-md", class "fixed-top", style "backdrop-filter" "blur(6px)", style "background-color" "rgba(255, 255, 255, .3)" ]
@@ -1027,9 +1016,26 @@ viewSearchResults model =
 
                 Nothing ->
                     if model.loadingSearchResults then
-                        [ searchResultPlaceholder
-                        , searchResultPlaceholder
-                        , searchResultPlaceholder
+                        [ div [ class "mb-4", class "opacity-75" ]
+                            [ h4 [ class "mb-1", class "placeholder-wave" ] [ span [ class "placeholder", class "col-2", class "me-1" ] [], span [ class "placeholder", class "col-3" ] [] ]
+                            , div [ class "mb-1", class "placeholder-wave" ] [ span [ class "placeholder", class "col-1", class "me-1" ] [], span [ class "placeholder", class "col-2" ] [] ]
+                            , span [ class "badge", class "rounded-pill", class "me-1", class "placeholder", class "placeholder-wave", class "text-bg-secondary", class "text-secondary" ] [ text "former-employee-recent-3yr" ]
+                            , span [ class "badge", class "rounded-pill", class "me-1", class "placeholder", class "placeholder-wave", class "text-bg-secondary", class "text-secondary" ] [ text "full-time-employee" ]
+                            , span [ class "badge", class "rounded-pill", class "me-1", class "placeholder", class "placeholder-wave", class "text-bg-secondary", class "text-secondary" ] [ text "former-credit-student" ]
+                            ]
+                        , div [ class "mb-4", class "opacity-50" ]
+                            [ h4 [ class "mb-1", class "placeholder-wave" ] [ span [ class "placeholder", class "col-3", class "me-1" ] [], span [ class "placeholder", class "col-1" ] [] ]
+                            , div [ class "mb-1", class "placeholder-wave" ] [ span [ class "placeholder", class "col-2", class "me-1" ] [], span [ class "placeholder", class "col-3" ] [] ]
+                            , span [ class "badge", class "rounded-pill", class "me-1", class "placeholder", class "placeholder-wave", class "text-bg-secondary", class "text-secondary" ] [ text "student-employee" ]
+                            , span [ class "badge", class "rounded-pill", class "me-1", class "placeholder", class "placeholder-wave", class "text-bg-secondary", class "text-secondary" ] [ text "junior-student" ]
+                            ]
+                        , div [ class "mb-4", class "opacity-25" ]
+                            [ h4 [ class "mb-1", class "placeholder-wave" ] [ span [ class "placeholder", class "col-1", class "me-1" ] [], span [ class "placeholder", class "col-4" ] [] ]
+                            , div [ class "mb-1", class "placeholder-wave" ] [ span [ class "placeholder", class "col-3", class "me-1" ] [], span [ class "placeholder", class "col-1" ] [] ]
+                            , span [ class "badge", class "rounded-pill", class "me-1", class "placeholder", class "placeholder-wave", class "text-bg-secondary", class "text-secondary" ] [ text "staff" ]
+                            , span [ class "badge", class "rounded-pill", class "me-1", class "placeholder", class "placeholder-wave", class "text-bg-secondary", class "text-secondary" ] [ text "full-time-employee" ]
+                            , span [ class "badge", class "rounded-pill", class "me-1", class "placeholder", class "placeholder-wave", class "text-bg-secondary", class "text-secondary" ] [ text "credit-student" ]
+                            ]
                         ]
 
                     else
@@ -2130,9 +2136,24 @@ viewPerson model =
                                                 []
 
                                             Nothing ->
-                                                [ eventRowPlaceholder
-                                                , eventRowPlaceholder
-                                                , eventRowPlaceholder
+                                                [ tr [ class "opacity-75" ]
+                                                    [ td [ style "width" "20%" ]
+                                                        [ span [ class "placeholder", class "placeholder-wave", class "col-10", class "text-secondary" ] [] ]
+                                                    , td []
+                                                        [ span [ class "placeholder", class "placeholder-wave", class "col-7", class "text-secondary" ] [] ]
+                                                    ]
+                                                , tr [ class "opacity-50" ]
+                                                    [ td [ style "width" "20%" ]
+                                                        [ span [ class "placeholder", class "placeholder-wave", class "col-8", class "text-secondary" ] [] ]
+                                                    , td []
+                                                        [ span [ class "placeholder", class "placeholder-wave", class "col-8", class "text-secondary" ] [] ]
+                                                    ]
+                                                , tr [ class "opacity-25" ]
+                                                    [ td [ style "width" "20%" ]
+                                                        [ span [ class "placeholder", class "placeholder-wave", class "col-9", class "text-secondary" ] [] ]
+                                                    , td []
+                                                        [ span [ class "placeholder", class "placeholder-wave", class "col-6", class "text-secondary" ] [] ]
+                                                    ]
                                                 ]
 
                                     _ ->
@@ -2326,16 +2347,6 @@ dedupEvents events =
         events
         |> Tuple.second
         |> List.reverse
-
-
-eventRowPlaceholder : Html msg
-eventRowPlaceholder =
-    tr []
-        [ td [ style "width" "20%" ]
-            [ span [ class "placeholder", class "placeholder-wave", class "col-10", class "text-secondary" ] [] ]
-        , td []
-            [ span [ class "placeholder", class "placeholder-wave", class "col-7", class "text-secondary" ] [] ]
-        ]
 
 
 renderAppStatusBadge : AppStatusBadge -> Html msg
