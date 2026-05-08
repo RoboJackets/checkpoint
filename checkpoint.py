@@ -740,11 +740,7 @@ def search_keycloak(**kwargs: Union[str, bool]) -> List[Dict[str, Any]]:
     return keycloak_response.json()  # type: ignore
 
 
-@cache.memoize(
-    unless=lambda _f, *_args, **kwargs: kwargs.get("bypass_cache", False),
-    response_filter=lambda result: result is not None,
-    args_to_ignore=["bypass_cache"],
-)
+@cache.memoize(response_filter=lambda result: result is not None)
 def search_apiary(  # pylint: disable=too-many-arguments
     *,
     directory_id: Union[str, None] = None,
@@ -753,7 +749,6 @@ def search_apiary(  # pylint: disable=too-many-arguments
     apiary_user_id: Union[str, int, None] = None,
     email: Union[str, None] = None,
     include: Union[List[str], None] = None,
-    bypass_cache: bool = False,
 ) -> Union[Dict[str, Any], None]:
     """
     Look up a single user in Apiary by one of the supported identifiers and update Crosswalk
@@ -776,14 +771,12 @@ def search_apiary(  # pylint: disable=too-many-arguments
         raise InternalServerError("search_apiary: must supply exactly one identifier")
 
     params = {"include": ",".join(include)} if include else {}
-    headers = {"x-cache-bypass": "bypass"} if bypass_cache else {}
 
     if email is not None:
         apiary_response = apiary.post(
             url=app.config["APIARY_BASE_URL"] + "/api/v1/users/searchByEmail",
             json={"email": email},
             params=params,
-            headers=headers,
             timeout=(5, 5),
         )
     else:
@@ -791,7 +784,7 @@ def search_apiary(  # pylint: disable=too-many-arguments
         apiary_response = apiary.get(
             url=app.config["APIARY_BASE_URL"] + "/api/v1/users/" + str(key),
             params=params,
-            headers=headers,
+            headers={"x-cache-bypass": "bypass"},
             timeout=(5, 5),
         )
 
@@ -828,9 +821,7 @@ def search_apiary(  # pylint: disable=too-many-arguments
         if fallback_gtid is None:
             return None
 
-        return search_apiary(  # type: ignore[no-any-return]
-            gtid=fallback_gtid, include=include, bypass_cache=bypass_cache
-        )
+        return search_apiary(gtid=fallback_gtid, include=include)  # type: ignore[no-any-return]
 
     apiary_response.raise_for_status()
 
@@ -1976,7 +1967,6 @@ def get_apiary_account(directory_id: str, is_frontend_request: bool = True) -> D
     user = search_apiary(
         directory_id=directory_id,
         include=["actions", "attendance.recorded", "attendance.attendable", "teams", "roles"],
-        bypass_cache=True,
     )
 
     return user or {}
@@ -2182,7 +2172,6 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
         search_apiary(
             directory_id=directory_id,
             include=["actions", "attendance.recorded", "attendance.attendable"],
-            bypass_cache=True,
         )
         or {}
     )
