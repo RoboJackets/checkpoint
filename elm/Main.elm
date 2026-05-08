@@ -902,7 +902,7 @@ searchResultToHtml majors result =
 
 renderNavbar : Model -> Html Msg
 renderNavbar model =
-    nav [ class "navbar", class "navbar-expand-md", class "fixed-top", style "backdrop-filter" "blur(6px)", style "background-color" "rgba(255, 255, 255, .3)" ]
+    nav [ class "navbar", class "navbar-expand", class "fixed-top", style "backdrop-filter" "blur(6px)", style "background-color" "rgba(255, 255, 255, .3)" ]
         [ div [ class "container-fluid", style "max-width" "64rem", class "justify-content-start" ]
             [ a [ class "navbar-brand", href "/" ]
                 [ shieldSearchIcon "1.3em"
@@ -1684,9 +1684,9 @@ viewPerson model =
                             )
                         ]
                    )
-                ++ [ h5 [ class "mt-4", class "mb-3" ] [ text "Apps " ]
+                ++ [ h5 [ class "mt-4", class "mb-3" ] [ text "Apps" ]
                    , div [ class "row", class "gy-4" ]
-                        [ div [ class "col-6" ]
+                        [ div [ class "col-md-6" ]
                             [ div [ class "card" ]
                                 [ div [ class "card-body" ]
                                     [ h6 [] [ text "Dropbox" ]
@@ -1709,7 +1709,7 @@ viewPerson model =
                                     ]
                                 ]
                             ]
-                        , div [ class "col-6" ]
+                        , div [ class "col-md-6" ]
                             [ div [ class "card" ]
                                 [ div [ class "card-body" ]
                                     [ h6 [] [ text "Google Groups" ]
@@ -1732,7 +1732,7 @@ viewPerson model =
                                     ]
                                 ]
                             ]
-                        , div [ class "col-6" ]
+                        , div [ class "col-md-6" ]
                             [ div [ class "card" ]
                                 [ div [ class "card-body" ]
                                     [ h6 [] [ text "Google Workspace" ]
@@ -1762,7 +1762,7 @@ viewPerson model =
                                     ]
                                 ]
                             ]
-                        , div [ class "col-6" ]
+                        , div [ class "col-md-6" ]
                             [ div [ class "card" ]
                                 [ div [ class "card-body" ]
                                     [ h6 [] [ text "SUMS" ]
@@ -1787,9 +1787,9 @@ viewPerson model =
                                 ]
                             ]
                         ]
-                   , h5 [ class "mt-4", class "mb-3" ] [ text "Directories " ]
+                   , h5 [ class "mt-4", class "mb-3" ] [ text "Directories" ]
                    , div [ class "row", class "mb-4", class "gy-4" ]
-                        [ div [ class "col-4" ]
+                        [ div [ class "col-6", class "col-md-4" ]
                             [ div [ class "card" ]
                                 [ div [ class "card-body" ]
                                     ([ h6 [] [ text "Apiary" ]
@@ -1877,7 +1877,7 @@ viewPerson model =
                                     )
                                 ]
                             ]
-                        , div [ class "col-4" ]
+                        , div [ class "col-6", class "col-md-4" ]
                             [ div [ class "card" ]
                                 [ div [ class "card-body" ]
                                     ([ h6 [] [ text "Grouper" ]
@@ -1925,7 +1925,7 @@ viewPerson model =
                                     )
                                 ]
                             ]
-                        , div [ class "col-4" ]
+                        , div [ class "col-6", class "col-md-4" ]
                             [ div [ class "card" ]
                                 [ div [ class "card-body" ]
                                     ([ h6 [] [ text "GTAD" ]
@@ -1964,7 +1964,7 @@ viewPerson model =
                                     )
                                 ]
                             ]
-                        , div [ class "col-4" ]
+                        , div [ class "col-6", class "col-md-4" ]
                             [ div [ class "card" ]
                                 [ div [ class "card-body" ]
                                     ([ h6 [] [ text "GTED" ]
@@ -2020,7 +2020,7 @@ viewPerson model =
                                     )
                                 ]
                             ]
-                        , div [ class "col-4" ]
+                        , div [ class "col-6", class "col-md-4" ]
                             [ div [ class "card" ]
                                 [ div [ class "card-body" ]
                                     ([ h6 [] [ text "Keycloak" ]
@@ -2070,7 +2070,7 @@ viewPerson model =
                                     )
                                 ]
                             ]
-                        , div [ class "col-4" ]
+                        , div [ class "col-6", class "col-md-4" ]
                             [ div [ class "card" ]
                                 [ div [ class "card-body" ]
                                     ([ h6 [] [ text "Whitepages" ]
