@@ -3219,6 +3219,53 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
                             + get_parameter_value("NEW_VALUE", item["events"][0]["parameters"])
                         )
 
+                    elif (
+                        "name" in item["events"][0]
+                        and item["events"][0]["name"] == "CHANGE_USER_RELATION"
+                    ):
+                        user_email = get_parameter_value(
+                            "USER_EMAIL", item["events"][0]["parameters"]
+                        )
+                        old_value = get_parameter_value(
+                            "OLD_VALUE", item["events"][0]["parameters"]
+                        ).strip('"')
+                        new_value = get_parameter_value(
+                            "NEW_VALUE", item["events"][0]["parameters"]
+                        ).strip('"')
+
+                        user_display_name = get_actor(
+                            email=user_email, customer_id=item["id"]["customerId"]
+                        )["actorDisplayName"]
+
+                        if new_value:
+                            new_relation_type, _, new_relation_email = new_value.partition(":")
+                            new_relation_display_name = get_actor(
+                                email=new_relation_email, customer_id=item["id"]["customerId"]
+                            )["actorDisplayName"]
+                            event_description = (
+                                "updated "
+                                + str(user_display_name)
+                                + "'s "
+                                + new_relation_type.lower()
+                                + " to "
+                                + str(new_relation_display_name)
+                                + " in Google Workspace"
+                            )
+                        else:
+                            old_relation_type, _, old_relation_email = old_value.partition(":")
+                            old_relation_display_name = get_actor(
+                                email=old_relation_email, customer_id=item["id"]["customerId"]
+                            )["actorDisplayName"]
+                            event_description = (
+                                "removed "
+                                + str(user_display_name)
+                                + "'s "
+                                + old_relation_type.lower()
+                                + " (was "
+                                + str(old_relation_display_name)
+                                + ") in Google Workspace"
+                            )
+
                     else:
                         raise InternalServerError(
                             "Unable to determine admin event type: " + dumps(item)
