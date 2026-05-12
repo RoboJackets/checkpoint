@@ -3914,6 +3914,9 @@ def handle_slack_message_event(event: Dict[str, Any]) -> None:
 
     lookup_user_id = mentioned_users[0] if len(mentioned_users) == 1 else event["user"]
 
+    if cache.get(lookup_user_id) is not None:
+        return
+
     lookup_results = search_by_slack_user_id(
         lookup_user_id, with_gted=True, with_title_and_organization=True
     )
@@ -3941,6 +3944,8 @@ def handle_slack_message_event(event: Dict[str, Any]) -> None:
             plain_text += " - " + get_majors()[lookup_results["results"][0]["organizationalUnit"]]
         else:
             plain_text += " - " + lookup_results["results"][0]["organizationalUnit"]
+
+    cache.set(lookup_user_id, True)
 
     for user_id in user_ids:
         slack.chat_postEphemeral(
@@ -3991,7 +3996,8 @@ def handle_slack_nessage() -> Dict[str, str]:
             return {"challenge": body["challenge"]}
 
         if body is not None and body.get("type") == "event_callback":
-            handle_slack_message_event.delay(body.get("event", {}))
+            if body.get("event", {}).get("thread_ts") is None:
+                handle_slack_message_event.delay(body.get("event", {}))
             return {"status": "ok"}
 
     raise BadRequest("Unsupported payload type")

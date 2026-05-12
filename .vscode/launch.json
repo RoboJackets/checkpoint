@@ -27,6 +27,10 @@
             "type": "debugpy",
             "request": "launch",
             "module": "celery",
+            "env": {
+                "FLASK_DEBUG": "1",
+                "FLASK_CACHE_TYPE": "SimpleCache"
+            },
             "envFile": "${workspaceFolder}/.env",
             "args": [
                 "--app",
