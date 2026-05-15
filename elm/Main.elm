@@ -234,7 +234,7 @@ type alias Model =
     , events : Maybe (Result Http.Error (List Event))
     , googleGroups : Maybe (Result Http.Error AllGoogleAccountGroups)
     , googleWorkspaceAccount : Maybe (Result Http.Error (Maybe GoogleWorkspaceAccount))
-    , gtadAccount : Maybe (Result Http.Error LdapEntry)
+    , gtadAccount : Maybe (Result Http.Error (Maybe LdapEntry))
     , sumsBillingGroups : Maybe (Result Http.Error SumsBillingGroups)
     , keycloakDeepLinkBaseUrl : String
     , apiaryBaseUrl : String
@@ -258,7 +258,7 @@ type Msg
     | EventsReceived (Result Http.Error (List Event))
     | GoogleGroupsReceived (Result Http.Error AllGoogleAccountGroups)
     | GoogleWorkspaceAccountReceived (Result Http.Error (Maybe GoogleWorkspaceAccount))
-    | GtadAccountReceived (Result Http.Error LdapEntry)
+    | GtadAccountReceived (Result Http.Error (Maybe LdapEntry))
     | SumsBillingGroupsReceived (Result Http.Error SumsBillingGroups)
     | SetZone Time.Zone
     | SetZoneName Time.ZoneName
@@ -1202,7 +1202,7 @@ primaryWhitepagesAttribute attributeName model =
 gtadAttribute : String -> Model -> Maybe String
 gtadAttribute attributeName model =
     case model.gtadAccount of
-        Just (Ok entry) ->
+        Just (Ok (Just entry)) ->
             case Dict.get attributeName entry.attributes of
                 Just attributeList ->
                     List.head attributeList
@@ -1353,7 +1353,7 @@ fetchViewPersonData directoryId =
                 Url.Builder.absolute
                     [ "view", directoryId, "gtad" ]
                     []
-            , expect = expectJson GtadAccountReceived ldapEntryDecoder
+            , expect = expectJson GtadAccountReceived (Json.Decode.maybe ldapEntryDecoder)
             }
         , Http.get
             { url =
@@ -1937,8 +1937,11 @@ viewPerson model =
                                                         Just (Err _) ->
                                                             []
 
-                                                        Just (Ok _) ->
+                                                        Just (Ok (Just _)) ->
                                                             [ div [ class "mb-1" ] [ text "1 account" ] ]
+
+                                                        Just (Ok Nothing) ->
+                                                            [ div [ class "text-secondary" ] [ text "No account" ] ]
 
                                                         Nothing ->
                                                             [ div [ class "placeholder-wave", class "mb-1", class "text-secondary" ] [ text "Loading..." ] ]
@@ -1952,8 +1955,11 @@ viewPerson model =
                                                         Just (Err _) ->
                                                             []
 
-                                                        Just (Ok account) ->
+                                                        Just (Ok (Just account)) ->
                                                             List.map (\groupName -> span [ class "badge", class "rounded-pill", class "text-bg-primary", class "me-1" ] [ text groupName ]) (List.sort (List.filterMap (\groupName -> Dict.get groupName groupNameMap) (Maybe.withDefault [] (Dict.get "memberOf" account.attributes))))
+
+                                                        Just (Ok Nothing) ->
+                                                            []
 
                                                         Nothing ->
                                                             [ span [ class "placeholder", class "placeholder-wave", class "badge", class "rounded-pill", class "text-bg-secondary", class "text-secondary" ] [ text "robowrestling" ] ]
@@ -2897,12 +2903,15 @@ grouperGroupProvisioningBadge model =
 gtadGroupProvisioningBadge : Model -> Html msg
 gtadGroupProvisioningBadge model =
     case model.gtadAccount of
-        Just (Ok account) ->
+        Just (Ok (Just account)) ->
             if List.member "CN=general_robojackets_services_gt,OU=grouper-prod,OU=Gted,OU=GT_Resources,DC=ad,DC=gatech,DC=edu" (Maybe.withDefault [] (Dict.get "memberOf" account.attributes)) then
                 renderAppStatusBadge { status = Success, label = "GTAD", tooltip = "User is in the general Grouper group in GTAD", link = Nothing }
 
             else
                 renderAppStatusBadge { status = Danger, label = "GTAD", tooltip = "User is not in the general Grouper group in GTAD", link = Nothing }
+
+        Just (Ok Nothing) ->
+            renderAppStatusBadge { status = Danger, label = "GTAD", tooltip = "User does not have a GTAD account", link = Nothing }
 
         Nothing ->
             renderAppStatusBadge { status = Loading, label = "GTAD", tooltip = "User is not provisioned in the general Grouper group in GTAD", link = Nothing }
