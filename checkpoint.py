@@ -784,7 +784,6 @@ def search_apiary(  # pylint: disable=too-many-arguments
         apiary_response = apiary.get(
             url=app.config["APIARY_BASE_URL"] + "/api/v1/users/" + str(key),
             params=params,
-            headers={"x-cache-bypass": "bypass"},
             timeout=(5, 5),
         )
 
