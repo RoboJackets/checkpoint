@@ -2125,23 +2125,31 @@ viewPerson model =
                             ]
                         ]
                    , h5 [ class "mt-4", class "mb-3" ] [ text "Events " ]
-                   , div [ class "row" ]
-                        [ table [ class "table" ]
-                            [ tbody []
-                                (case model.selectedDirectoryId of
-                                    Just _ ->
-                                        case model.events of
-                                            Just (Ok events) ->
-                                                if List.isEmpty events then
-                                                    [ tr [] [ td [ class "text-secondary", class "border-0" ] [ text "No events" ] ] ]
+                   , (case model.selectedDirectoryId of
+                        Just _ ->
+                            case model.events of
+                                Just (Ok events) ->
+                                    if List.isEmpty events then
+                                        div [ class "text-secondary" ] [ text "No events" ]
 
-                                                else
-                                                    List.map (eventToHtmlRow model.zone model.zoneName) (dedupEvents (List.sortWith sortByEventTimestamp events))
+                                    else
+                                        div [ class "row" ]
+                                            [ table [ class "table" ]
+                                                [ tbody []
+                                                    (List.map (eventToHtmlRow model.zone model.zoneName) (dedupEvents (List.sortWith sortByEventTimestamp events)))
+                                                ]
+                                            ]
 
-                                            Just (Err _) ->
-                                                []
+                                Just (Err _) ->
+                                    div [ class "row" ]
+                                        [ table [ class "table" ]
+                                            [ tbody [] [] ]
+                                        ]
 
-                                            Nothing ->
+                                Nothing ->
+                                    div [ class "row" ]
+                                        [ table [ class "table" ]
+                                            [ tbody []
                                                 [ tr [ class "opacity-75" ]
                                                     [ td [ style "width" "20%" ]
                                                         [ span [ class "placeholder", class "placeholder-wave", class "col-10", class "text-secondary" ] [] ]
@@ -2161,12 +2169,15 @@ viewPerson model =
                                                         [ span [ class "placeholder", class "placeholder-wave", class "col-6", class "text-secondary" ] [] ]
                                                     ]
                                                 ]
+                                            ]
+                                        ]
 
-                                    _ ->
-                                        []
-                                )
-                            ]
-                        ]
+                        _ ->
+                            div [ class "row" ]
+                                [ table [ class "table" ]
+                                    [ tbody [] [] ]
+                                ]
+                     )
                    ]
             )
         ]
