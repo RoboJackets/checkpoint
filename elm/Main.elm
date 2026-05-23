@@ -2125,7 +2125,7 @@ viewPerson model =
                             ]
                         ]
                    , h5 [ class "mt-4", class "mb-3" ] [ text "Events " ]
-                   , (case model.selectedDirectoryId of
+                   , case model.selectedDirectoryId of
                         Just _ ->
                             case model.events of
                                 Just (Ok events) ->
@@ -2177,7 +2177,6 @@ viewPerson model =
                                 [ table [ class "table" ]
                                     [ tbody [] [] ]
                                 ]
-                     )
                    ]
             )
         ]
