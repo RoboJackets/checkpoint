@@ -2124,30 +2124,47 @@ viewPerson model =
                                 ]
                             ]
                         ]
-                   , h5 [ class "mt-4", class "mb-3" ] [ text "Events " ]
+                   , h5 [ class "mt-4" ] [ text "Events" ]
+                   , small [ class "text-secondary" ]
+                        [ text
+                            ("Events are retrieved from downstream systems and shown on a best-effort basis. All times are in your local time zone ("
+                                ++ (case model.zoneName of
+                                        Name name ->
+                                            name
+
+                                        Offset offset ->
+                                            if offset > 0 then
+                                                "UTC+" ++ String.fromFloat (toFloat offset / 60)
+
+                                            else
+                                                "UTC" ++ String.fromFloat (toFloat offset / 60)
+                                   )
+                                ++ ")."
+                            )
+                        ]
                    , case model.selectedDirectoryId of
                         Just _ ->
                             case model.events of
                                 Just (Ok events) ->
                                     if List.isEmpty events then
-                                        div [ class "text-secondary" ] [ text "No events" ]
+                                        div [ class "text-secondary", class "mt-3" ] [ text "No events" ]
 
                                     else
-                                        div [ class "row" ]
+                                        div [ class "row", class "mt-3" ]
                                             [ table [ class "table" ]
                                                 [ tbody []
-                                                    (List.map (eventToHtmlRow model.zone model.zoneName) (dedupEvents (List.sortWith sortByEventTimestamp events)))
+                                                    (List.map (eventToHtmlRow model.zone) (dedupEvents (List.sortWith sortByEventTimestamp events)))
                                                 ]
                                             ]
 
                                 Just (Err _) ->
-                                    div [ class "row" ]
+                                    div [ class "row", class "mt-3" ]
                                         [ table [ class "table" ]
                                             [ tbody [] [] ]
                                         ]
 
                                 Nothing ->
-                                    div [ class "row" ]
+                                    div [ class "row", class "mt-3" ]
                                         [ table [ class "table" ]
                                             [ tbody []
                                                 [ tr [ class "opacity-75" ]
@@ -2173,7 +2190,7 @@ viewPerson model =
                                         ]
 
                         _ ->
-                            div [ class "row" ]
+                            div [ class "row", class "mt-3" ]
                                 [ table [ class "table" ]
                                     [ tbody [] [] ]
                                 ]
@@ -2228,75 +2245,60 @@ getApiaryUserId model =
             ""
 
 
-eventToHtmlRow : Time.Zone -> Time.ZoneName -> Event -> Html msg
-eventToHtmlRow zone zoneName event =
+eventToHtmlRow : Time.Zone -> Event -> Html msg
+eventToHtmlRow zone event =
     tr
         []
         [ td []
-            [ abbr
-                [ title
-                    (case zoneName of
-                        Name name ->
-                            name
+            [ text
+                ((((case toMonth zone event.eventTimestamp of
+                        Jan ->
+                            "January"
 
-                        Offset offset ->
-                            if offset > 0 then
-                                "UTC+" ++ String.fromFloat (toFloat offset / 60)
+                        Feb ->
+                            "February"
 
-                            else
-                                "UTC" ++ String.fromFloat (toFloat offset / 60)
-                    )
-                ]
-                [ text
-                    ((((case toMonth zone event.eventTimestamp of
-                            Jan ->
-                                "January"
+                        Mar ->
+                            "March"
 
-                            Feb ->
-                                "February"
+                        Apr ->
+                            "April"
 
-                            Mar ->
-                                "March"
+                        May ->
+                            "May"
 
-                            Apr ->
-                                "April"
+                        Jun ->
+                            "June"
 
-                            May ->
-                                "May"
+                        Jul ->
+                            "July"
 
-                            Jun ->
-                                "June"
+                        Aug ->
+                            "August"
 
-                            Jul ->
-                                "July"
+                        Sep ->
+                            "September"
 
-                            Aug ->
-                                "August"
+                        Oct ->
+                            "October"
 
-                            Sep ->
-                                "September"
+                        Nov ->
+                            "November"
 
-                            Oct ->
-                                "October"
-
-                            Nov ->
-                                "November"
-
-                            Dec ->
-                                "December"
-                       )
-                        ++ " "
-                        ++ String.fromInt (toDay zone event.eventTimestamp)
-                      )
-                        ++ ", "
-                        ++ String.fromInt (toYear zone event.eventTimestamp)
-                        ++ " "
-                        ++ String.padLeft 2 '0' (String.fromInt (toHour zone event.eventTimestamp))
-                     )
-                        ++ ":"
-                        ++ String.padLeft 2 '0' (String.fromInt (toMinute zone event.eventTimestamp))
-                    )
-                ]
+                        Dec ->
+                            "December"
+                   )
+                    ++ " "
+                    ++ String.fromInt (toDay zone event.eventTimestamp)
+                  )
+                    ++ ", "
+                    ++ String.fromInt (toYear zone event.eventTimestamp)
+                    ++ " "
+                    ++ String.padLeft 2 '0' (String.fromInt (toHour zone event.eventTimestamp))
+                 )
+                    ++ ":"
+                    ++ String.padLeft 2 '0' (String.fromInt (toMinute zone event.eventTimestamp))
+                )
             ]
         , td []
             [ case event.actorLink of
