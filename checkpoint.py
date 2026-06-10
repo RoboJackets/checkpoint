@@ -1082,6 +1082,7 @@ def format_search_result(
 
 def format_search_result_blocks(
     search_results: Dict[str, Any],
+    show_iat_option: bool,
 ) -> List[Dict[str, Any]]:
     """
     Convert search results to Slack Block Kit blocks for a modal
@@ -1214,6 +1215,15 @@ def format_search_result_blocks(
                 }
             ]
 
+        iat_option = []
+        if show_iat_option:
+            iat_option = [
+                {
+                    "text": {"type": "plain_text", "text": "View in IAT"},
+                    "url": "https://iat.gatech.edu/prod/person/" + result["directoryId"],
+                }
+            ]
+
         blocks.append(
             {
                 "type": "actions",
@@ -1230,11 +1240,7 @@ def format_search_result_blocks(
                         "type": "overflow",
                         "action_id": "overflow_menu",
                         "options": [
-                            {
-                                "text": {"type": "plain_text", "text": "View in IAT"},
-                                "url": "https://iat.gatech.edu/prod/person/"
-                                + result["directoryId"],
-                            },
+                            *iat_option,
                             {
                                 "text": {"type": "plain_text", "text": "View in Grouper"},
                                 "url": app.config["GROUPER_BASE_URL"]
@@ -3843,6 +3849,32 @@ def slack_user_has_access_to_checkpoint(slack_user_id: str) -> bool:
     return False
 
 
+@cache.memoize()
+def slack_user_has_iat_access(slack_user_id: str) -> bool:
+    """
+    Check if a Slack user has IAT access via GTED entitlements
+    """
+    viewer_results = search_by_slack_user_id(
+        slack_user_id, with_gted=False, with_title_and_organization=False
+    )
+
+    if len(viewer_results["results"]) == 0:
+        return False
+
+    gted_accounts = search_gted(gtPersonDirectoryId=viewer_results["results"][0]["directoryId"])
+
+    for account in gted_accounts:
+        entitlements = account.get("gtAccountEntitlement")
+        if entitlements is None:
+            continue
+
+        for entitlement in entitlements:
+            if "/iat/" in entitlement:
+                return True
+
+    return False
+
+
 @shared_task
 def handle_slack_search_request(payload: Dict[str, Any]) -> None:
     """
@@ -3899,7 +3931,10 @@ def handle_slack_search_request(payload: Dict[str, Any]) -> None:
         view={
             "type": "modal",
             "title": {"type": "plain_text", "text": "Checkpoint"},
-            "blocks": format_search_result_blocks(lookup_results),
+            "blocks": format_search_result_blocks(
+                lookup_results,
+                slack_user_has_iat_access(payload["user"]["id"]),
+            ),
         },
     )
 
@@ -3923,8 +3958,6 @@ def handle_slack_message_event(event: Dict[str, Any]) -> None:
     if len(lookup_results["results"]) == 0:
         return
 
-    blocks = format_search_result_blocks(lookup_results)
-
     ephemeral_users = app.config.get("SLACK_EPHEMERAL_USERS", "")
     if isinstance(ephemeral_users, str):
         user_ids = [uid.strip() for uid in ephemeral_users.split(",") if uid.strip()]
@@ -3946,12 +3979,22 @@ def handle_slack_message_event(event: Dict[str, Any]) -> None:
 
     cache.set(lookup_user_id, True)
 
+    blocks_by_iat_access: Dict[bool, List[Dict[str, Any]]] = {}
+
     for user_id in user_ids:
+        show_iat_option = slack_user_has_iat_access(user_id)
+
+        if show_iat_option not in blocks_by_iat_access:
+            blocks_by_iat_access[show_iat_option] = format_search_result_blocks(
+                lookup_results,
+                show_iat_option,
+            )
+
         slack.chat_postEphemeral(
             channel=event["channel"],
             user=user_id,
             text=plain_text,
-            blocks=blocks,
+            blocks=blocks_by_iat_access[show_iat_option],
         )
 
 
