@@ -310,6 +310,13 @@ def search_gted(**kwargs: str) -> List[Dict[str, Any]]:
         return []
 
     for account in buzzapi_response.json()["api_result_data"]:
+        if (
+            account.get("gtPersonDirectoryId") is None
+            or account.get("gtGTID") is None
+            or account.get("gtPrimaryGTAccountUsername") is None
+        ):
+            continue
+
         db().execute(
             (
                 "INSERT INTO crosswalk (gt_person_directory_id, gtid, primary_username)"
@@ -321,17 +328,19 @@ def search_gted(**kwargs: str) -> List[Dict[str, Any]]:
                 "primary_username": account["gtPrimaryGTAccountUsername"],
             },
         )
-        db().execute(
-            (
-                "INSERT INTO crosswalk_email_address (email_address, gt_person_directory_id)"  # noqa
-                " VALUES (:email_address, :gt_person_directory_id)"
-                " ON CONFLICT DO UPDATE SET gt_person_directory_id = (:gt_person_directory_id) WHERE email_address = (:email_address)"  # noqa
-            ),
-            {
-                "email_address": account["mail"],
-                "gt_person_directory_id": account["gtPersonDirectoryId"],
-            },
-        )
+
+        if account.get("mail") is not None:
+            db().execute(
+                (
+                    "INSERT INTO crosswalk_email_address (email_address, gt_person_directory_id)"  # noqa
+                    " VALUES (:email_address, :gt_person_directory_id)"
+                    " ON CONFLICT DO UPDATE SET gt_person_directory_id = (:gt_person_directory_id) WHERE email_address = (:email_address)"  # noqa
+                ),
+                {
+                    "email_address": account["mail"],
+                    "gt_person_directory_id": account["gtPersonDirectoryId"],
+                },
+            )
 
     return buzzapi_response.json()["api_result_data"]  # type: ignore
 
