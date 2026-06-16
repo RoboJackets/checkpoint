@@ -48,6 +48,7 @@ from sentry_sdk.integrations.flask import FlaskIntegration
 from sentry_sdk.integrations.pure_eval import PureEvalIntegration
 
 from slack_sdk import WebClient
+from slack_sdk.errors import SlackApiError
 from slack_sdk.signature import SignatureVerifier
 
 from werkzeug.exceptions import BadRequest, Forbidden, InternalServerError, NotFound, Unauthorized
@@ -1776,15 +1777,16 @@ def search() -> (
 
 
 @app.get("/view/<directory_id>/whitepages")
-def get_whitepages_records(directory_id: str) -> Any:
+def get_whitepages_records(directory_id: str, is_frontend_request: bool = True) -> Any:
     """
     Get Whitepages entries for a provided gtPersonDirectoryId
     """
-    if "has_access" not in session:
-        raise Unauthorized("Not authenticated")
+    if is_frontend_request:
+        if "has_access" not in session:
+            raise Unauthorized("Not authenticated")
 
-    if session["has_access"] is not True:
-        raise Forbidden("Access denied")
+        if session["has_access"] is not True:
+            raise Forbidden("Access denied")
 
     cursor = db().execute(
         "SELECT primary_username FROM crosswalk WHERE gt_person_directory_id = (:directory_id)",
@@ -3530,14 +3532,14 @@ def parse_grouper_timestamp_to_unix_millis(timestamp: str) -> int:
     return int(dt_eastern.timestamp() * 1000)
 
 
-def get_email_addresses(directory_id: str) -> set[str]:
+def get_email_addresses(directory_id: str, is_frontend_request: bool = True) -> set[str]:
     """
     Collect all known email addresses for a given gtPersonDirectoryId from Apiary, Keycloak,
     and Whitepages
     """
     email_addresses = set[str]()
 
-    apiary_account = get_apiary_account(directory_id)
+    apiary_account = get_apiary_account(directory_id, is_frontend_request=is_frontend_request)
 
     if "gmail_address" in apiary_account and apiary_account["gmail_address"] is not None:
         email_addresses.add(apiary_account["gmail_address"])
@@ -3546,7 +3548,7 @@ def get_email_addresses(directory_id: str) -> set[str]:
     if "gt_email" in apiary_account and apiary_account["gt_email"] is not None:
         email_addresses.add(apiary_account["gt_email"])
 
-    keycloak_account = get_keycloak_account(directory_id)
+    keycloak_account = get_keycloak_account(directory_id, is_frontend_request=is_frontend_request)
 
     if "email" in keycloak_account and keycloak_account["email"] is not None:
         email_addresses.add(keycloak_account["email"])
@@ -3559,7 +3561,9 @@ def get_email_addresses(directory_id: str) -> set[str]:
     if ramp_login_email_address is not None:
         email_addresses.add(ramp_login_email_address)
 
-    whitepages_entries = get_whitepages_records(directory_id)
+    whitepages_entries = get_whitepages_records(
+        directory_id, is_frontend_request=is_frontend_request
+    )
 
     for entry in whitepages_entries:
         uid = get_attribute_value("primaryUid", entry)
@@ -3815,6 +3819,78 @@ def search_by_slack_user_id(
     return search_results
 
 
+@cache.memoize(timeout=0)
+def get_checkpoint_access_slack_user_ids() -> List[str]:
+    """
+    Get the Slack user IDs for everyone with the "access" role on the checkpoint client
+    """
+    clients_response = keycloak.get(
+        url=urlunparse(
+            (
+                urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,
+                urlparse(app.config["KEYCLOAK_METADATA_URL"]).netloc,
+                "/admin/realms/" + app.config["KEYCLOAK_REALM"] + "/clients",
+                "",
+                "clientId=checkpoint",
+                "",
+            )
+        ),
+        timeout=(5, 5),
+    )
+    clients_response.raise_for_status()
+
+    if len(clients_response.json()) == 0:
+        return []
+
+    client_uuid = clients_response.json()[0]["id"]
+
+    users_response = keycloak.get(
+        url=urlunparse(
+            (
+                urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,
+                urlparse(app.config["KEYCLOAK_METADATA_URL"]).netloc,
+                "/admin/realms/"
+                + app.config["KEYCLOAK_REALM"]
+                + "/clients/"
+                + client_uuid
+                + "/roles/access/users",
+                "",
+                "",
+                "",
+            )
+        ),
+        timeout=(5, 5),
+    )
+    users_response.raise_for_status()
+
+    slack_user_ids = list[str]()
+
+    for keycloak_user in users_response.json():
+        if keycloak_user.get("username") is None:
+            continue
+
+        search_results = search_by_username(
+            keycloak_user["username"], with_title_and_organization=False
+        )
+
+        if len(search_results["results"]) == 0:
+            continue
+
+        directory_id = search_results["results"][0]["directoryId"]
+
+        for email_address in get_email_addresses(directory_id, is_frontend_request=False):
+            try:
+                slack_user_info = slack.users_lookupByEmail(email=email_address)
+            except SlackApiError:
+                continue
+
+            if slack_user_info.get("ok") and slack_user_info["user"]["id"] not in slack_user_ids:
+                slack_user_ids.append(slack_user_info["user"]["id"])
+                break
+
+    return slack_user_ids
+
+
 @cache.memoize()
 def slack_user_has_access_to_checkpoint(slack_user_id: str) -> bool:
     """
@@ -4013,11 +4089,7 @@ def handle_slack_message_event(event: Dict[str, Any]) -> None:
     if len(lookup_results["results"]) == 0:
         return
 
-    ephemeral_users = app.config.get("SLACK_EPHEMERAL_USERS", "")
-    if isinstance(ephemeral_users, str):
-        user_ids = [uid.strip() for uid in ephemeral_users.split(",") if uid.strip()]
-    else:
-        user_ids = []
+    user_ids = get_checkpoint_access_slack_user_ids()
 
     plain_text = (
         lookup_results["results"][0]["givenName"] + " " + lookup_results["results"][0]["surname"]
@@ -4037,12 +4109,15 @@ def handle_slack_message_event(event: Dict[str, Any]) -> None:
     result_context = build_search_result_context(lookup_results["results"][0])
 
     for user_id in user_ids:
-        slack.chat_postEphemeral(
-            channel=event["channel"],
-            user=user_id,
-            text=plain_text,
-            blocks=format_search_result_blocks(result_context, user_id),
-        )
+        try:
+            slack.chat_postEphemeral(
+                channel=event["channel"],
+                user=user_id,
+                text=plain_text,
+                blocks=format_search_result_blocks(result_context, user_id),
+            )
+        except SlackApiError:
+            continue
 
 
 @app.post("/slack/interaction")
