@@ -1218,7 +1218,9 @@ def format_search_result_blocks(
         ]
 
     google_workspace_button = []
-    if result_context["googleWorkspacePrimaryEmail"] is not None:
+    if result_context[
+        "googleWorkspacePrimaryEmail"
+    ] is not None and slack_user_has_google_workspace_admin_access(viewer_slack_user_id):
         google_workspace_button = [
             {
                 "text": {"type": "plain_text", "text": "View in Google Workspace"},
@@ -4073,6 +4075,25 @@ def slack_user_has_keycloak_admin_access(slack_user_id: str) -> bool:
             return True
 
     return False
+
+
+@cache.memoize()
+def slack_user_has_google_workspace_admin_access(slack_user_id: str) -> bool:
+    """
+    Check if a Slack user is a Google Workspace admin (has isAdmin on their account)
+    """
+    viewer_results = search_by_slack_user_id(
+        slack_user_id, with_gted=False, with_title_and_organization=False
+    )
+
+    if len(viewer_results["results"]) == 0:
+        return False
+
+    google_workspace_account = get_google_workspace_account(
+        viewer_results["results"][0]["directoryId"], is_frontend_request=False
+    )
+
+    return google_workspace_account is not None and google_workspace_account.get("isAdmin") is True
 
 
 @shared_task
