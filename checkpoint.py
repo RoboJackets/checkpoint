@@ -1194,7 +1194,9 @@ def format_search_result_blocks(
         ]
 
     keycloak_button = []
-    if result_context["keycloakUserId"] is not None:
+    if result_context["keycloakUserId"] is not None and slack_user_has_keycloak_admin_access(
+        viewer_slack_user_id
+    ):
         keycloak_button = [
             {
                 "text": {"type": "plain_text", "text": "View in Keycloak"},
@@ -4005,6 +4007,72 @@ def slack_user_has_privilege_separated_account(slack_user_id: str) -> bool:
     accounts = search_gted(filter=build_ldap_filter(uid="*-" + primary_username))
 
     return len(accounts) > 0
+
+
+@cache.memoize()
+def slack_user_has_keycloak_admin_access(slack_user_id: str) -> bool:
+    """
+    Check if a Slack user has the admin realm role in the Keycloak master realm
+    """
+    viewer_results = search_by_slack_user_id(
+        slack_user_id, with_gted=False, with_title_and_organization=False
+    )
+
+    if len(viewer_results["results"]) == 0:
+        return False
+
+    cursor = db().execute(
+        "SELECT primary_username FROM crosswalk WHERE gt_person_directory_id = (:directory_id)",
+        {"directory_id": viewer_results["results"][0]["directoryId"]},
+    )
+    row = cursor.fetchone()
+
+    if row is None:
+        return False
+
+    primary_username = row[0]
+
+    users_response = keycloak.get(
+        url=urlunparse(
+            (
+                urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,
+                urlparse(app.config["KEYCLOAK_METADATA_URL"]).netloc,
+                "/admin/realms/master/users",
+                "",
+                "",
+                "",
+            )
+        ),
+        params={"username": primary_username, "exact": True},
+        timeout=(5, 5),
+    )
+    users_response.raise_for_status()
+
+    if len(users_response.json()) == 0:
+        return False
+
+    master_realm_user_id = users_response.json()[0]["id"]
+
+    role_mappings_response = keycloak.get(
+        url=urlunparse(
+            (
+                urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,
+                urlparse(app.config["KEYCLOAK_METADATA_URL"]).netloc,
+                "/admin/realms/master/users/" + master_realm_user_id + "/role-mappings/realm",
+                "",
+                "",
+                "",
+            )
+        ),
+        timeout=(5, 5),
+    )
+    role_mappings_response.raise_for_status()
+
+    for mapping in role_mappings_response.json():
+        if mapping.get("name") == "admin":
+            return True
+
+    return False
 
 
 @shared_task
