@@ -750,7 +750,11 @@ def search_keycloak(**kwargs: Union[str, bool]) -> List[Dict[str, Any]]:
     return keycloak_response.json()  # type: ignore
 
 
-@cache.memoize(response_filter=lambda result: result is not None)
+@cache.memoize(
+    response_filter=lambda result: result is not None,
+    args_to_ignore=["force_refresh"],
+    forced_update=lambda *args, force_refresh=False, **kwargs: force_refresh,
+)
 def search_apiary(  # pylint: disable=too-many-arguments
     *,
     directory_id: Union[str, None] = None,
@@ -759,6 +763,7 @@ def search_apiary(  # pylint: disable=too-many-arguments
     apiary_user_id: Union[str, int, None] = None,
     email: Union[str, None] = None,
     include: Union[List[str], None] = None,
+    force_refresh: bool = False,
 ) -> Union[Dict[str, Any], None]:
     """
     Look up a single user in Apiary by one of the supported identifiers and update Crosswalk
@@ -830,7 +835,9 @@ def search_apiary(  # pylint: disable=too-many-arguments
         if fallback_gtid is None:
             return None
 
-        return search_apiary(gtid=fallback_gtid, include=include)  # type: ignore[no-any-return]
+        return search_apiary(  # type: ignore[no-any-return]
+            gtid=fallback_gtid, include=include, force_refresh=force_refresh
+        )
 
     apiary_response.raise_for_status()
 
@@ -2006,6 +2013,7 @@ def get_apiary_account(directory_id: str, is_frontend_request: bool = True) -> D
     user = search_apiary(
         directory_id=directory_id,
         include=["actions", "attendance.recorded", "attendance.attendable", "teams", "roles"],
+        force_refresh=True,
     )
 
     return user or {}
