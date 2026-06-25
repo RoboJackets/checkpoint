@@ -3404,6 +3404,20 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
                     ):
                         event_description = "allowed an app access to Google Workspace data"
 
+                    elif (
+                        "name" in item["events"][0]
+                        and item["events"][0]["name"] == "email_forwarding_out_of_domain"
+                    ):
+                        event_description = (
+                            "configured email forwarding from "
+                            + item["actor"]["email"]
+                            + " to "
+                            + get_parameter_value(
+                                "email_forwarding_destination_address",
+                                item["events"][0]["parameters"],
+                            )
+                        )
+
                     else:
                         raise InternalServerError(
                             "Unable to determine login event type: " + dumps(item)
