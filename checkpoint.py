@@ -158,7 +158,6 @@ apiary.headers["Accept"] = "application/json"
 apiary.fetch_token()
 
 cache = Cache(app)
-cache.clear()
 
 slack = WebClient(token=app.config["SLACK_BOT_TOKEN"])
 
