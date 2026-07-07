@@ -60,6 +60,7 @@ req_log.setLevel(logging.DEBUG)
 req_log.propagate = True
 
 GEORGIA_TECH_USERNAME_REGEX = r"[a-zA-Z]+[0-9]+"
+EMAIL_ADDRESS_REGEX = r"[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,}"
 ACCESS_OVERRIDE_TIMESTAMP_REGEX = r"(?P<timestamp>\d{4}-\d{2}-\d{2})"
 NUMBER_IN_QUOTES_REGEX = r"\"(?P<user_id>\d+)\""
 PAYMENT_METHOD_REGEX = r"\"method\".+\"(?P<method>[a-z]+)\".+\"amount\""
@@ -4117,6 +4118,23 @@ def slack_user_has_google_workspace_admin_access(slack_user_id: str) -> bool:
     return google_workspace_account is not None and google_workspace_account.get("isAdmin") is True
 
 
+def determine_slack_lookup_target(text: str, poster_slack_user_id: str) -> str:
+    """
+    Determine the user of interest for a Slack message.
+
+    Returns either an email address or a Slack user ID.
+    """
+    email_addresses: set[str] = {match.lower() for match in re.findall(EMAIL_ADDRESS_REGEX, text)}
+
+    if len(email_addresses) == 1:
+        email_address, *_ = email_addresses
+        return email_address
+
+    mentioned_users: list[str] = re.findall(r"<@(U[A-Z0-9]+)>", text)
+
+    return mentioned_users[0] if len(mentioned_users) == 1 else poster_slack_user_id
+
+
 @shared_task
 def handle_slack_search_request(payload: Dict[str, Any]) -> None:
     """
@@ -4140,13 +4158,18 @@ def handle_slack_search_request(payload: Dict[str, Any]) -> None:
             },
         )
 
-    mentioned_users = re.findall(r"<@(U[A-Z0-9]+)>", payload["message"].get("text", ""))
-
-    lookup_user_id = mentioned_users[0] if len(mentioned_users) == 1 else payload["message"]["user"]
-
-    lookup_results = search_by_slack_user_id(
-        lookup_user_id, with_gted=True, with_title_and_organization=True
+    lookup_target = determine_slack_lookup_target(
+        payload["message"].get("text", ""), payload["message"]["user"]
     )
+
+    if "@" in lookup_target:
+        lookup_results = search_by_email(
+            Address(addr_spec=lookup_target), with_gted=True, with_title_and_organization=True
+        )
+    else:
+        lookup_results = search_by_slack_user_id(
+            lookup_target, with_gted=True, with_title_and_organization=True
+        )
 
     if len(lookup_results["results"]) == 0:
         slack.views_open(
@@ -4185,16 +4208,19 @@ def handle_slack_message_event(event: Dict[str, Any]) -> None:
     """
     Handle a Slack message event
     """
-    mentioned_users = re.findall(r"<@(U[A-Z0-9]+)>", event.get("text", ""))
+    lookup_target = determine_slack_lookup_target(event.get("text", ""), event["user"])
 
-    lookup_user_id = mentioned_users[0] if len(mentioned_users) == 1 else event["user"]
-
-    if cache.get(lookup_user_id) is not None:
+    if cache.get(lookup_target) is not None:
         return
 
-    lookup_results = search_by_slack_user_id(
-        lookup_user_id, with_gted=True, with_title_and_organization=True
-    )
+    if "@" in lookup_target:
+        lookup_results = search_by_email(
+            Address(addr_spec=lookup_target), with_gted=True, with_title_and_organization=True
+        )
+    else:
+        lookup_results = search_by_slack_user_id(
+            lookup_target, with_gted=True, with_title_and_organization=True
+        )
 
     if len(lookup_results["results"]) == 0:
         return
@@ -4214,7 +4240,7 @@ def handle_slack_message_event(event: Dict[str, Any]) -> None:
         else:
             plain_text += " - " + lookup_results["results"][0]["organizationalUnit"]
 
-    cache.set(lookup_user_id, True)
+    cache.set(lookup_target, True)
 
     result_context = build_search_result_context(lookup_results["results"][0])
 
