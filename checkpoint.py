@@ -3268,6 +3268,34 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
 
                     elif (
                         "name" in item["events"][0]
+                        and item["events"][0]["name"] == "CHANGE_USER_ORGANIZATION"
+                    ):
+                        user_email = get_parameter_value(
+                            "USER_EMAIL", item["events"][0]["parameters"]
+                        )
+                        old_value = get_parameter_value(
+                            "OLD_VALUE", item["events"][0]["parameters"]
+                        ).strip('"')
+                        new_value = get_parameter_value(
+                            "NEW_VALUE", item["events"][0]["parameters"]
+                        ).strip('"')
+
+                        user_display_name = get_actor(
+                            email=user_email, customer_id=item["id"]["customerId"]
+                        )["actorDisplayName"]
+
+                        event_description = (
+                            "updated "
+                            + str(user_display_name)
+                            + "'s title and department from "
+                            + str(old_value)
+                            + "to "
+                            + str(new_value)
+                            + " in Google Workspace"
+                        )
+
+                    elif (
+                        "name" in item["events"][0]
                         and item["events"][0]["name"] == "CHANGE_USER_RELATION"
                     ):
                         user_email = get_parameter_value(
