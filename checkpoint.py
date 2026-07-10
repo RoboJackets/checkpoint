@@ -3275,7 +3275,7 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
                         )
                         new_value = get_parameter_value(
                             "NEW_VALUE", item["events"][0]["parameters"]
-                        ).strip('"')
+                        ).strip('" :')
 
                         user_display_name = get_actor(
                             email=user_email, customer_id=item["id"]["customerId"]
