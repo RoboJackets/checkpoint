@@ -4373,14 +4373,43 @@ def determine_slack_lookup_target(text: str, poster_slack_user_id: str) -> str:
     return mentioned_users[0] if len(mentioned_users) == 1 else poster_slack_user_id
 
 
+def open_slack_view_or_ephemeral(
+    *,
+    trigger_id: str,
+    channel_id: str,
+    user_id: str,
+    view: Dict[str, Any],
+    text: str,
+) -> None:
+    """
+    Open a Slack modal, or post an ephemeral message if the trigger_id has expired.
+    """
+    try:
+        slack.views_open(trigger_id=trigger_id, view=view)
+    except SlackApiError as error:
+        if error.response["error"] != "expired_trigger_id":
+            raise
+        try:
+            slack.chat_postEphemeral(
+                channel=channel_id,
+                user=user_id,
+                text=text,
+                blocks=view["blocks"],
+            )
+        except SlackApiError:
+            pass
+
+
 @shared_task
 def handle_slack_search_request(payload: Dict[str, Any]) -> None:
     """
     Handle a Slack interaction event
     """
     if slack_user_has_access_to_checkpoint(payload["user"]["id"]) is False:
-        slack.views_open(
+        open_slack_view_or_ephemeral(
             trigger_id=payload["trigger_id"],
+            channel_id=payload["channel"]["id"],
+            user_id=payload["user"]["id"],
             view={
                 "type": "modal",
                 "title": {"type": "plain_text", "text": "Checkpoint"},
@@ -4394,6 +4423,7 @@ def handle_slack_search_request(payload: Dict[str, Any]) -> None:
                     }
                 ],
             },
+            text="You do not have access to Checkpoint.",
         )
 
     lookup_target = determine_slack_lookup_target(
@@ -4410,8 +4440,10 @@ def handle_slack_search_request(payload: Dict[str, Any]) -> None:
         )
 
     if len(lookup_results["results"]) == 0:
-        slack.views_open(
+        open_slack_view_or_ephemeral(
             trigger_id=payload["trigger_id"],
+            channel_id=payload["channel"]["id"],
+            user_id=payload["user"]["id"],
             view={
                 "type": "modal",
                 "title": {"type": "plain_text", "text": "Checkpoint"},
@@ -4425,19 +4457,23 @@ def handle_slack_search_request(payload: Dict[str, Any]) -> None:
                     }
                 ],
             },
+            text="Could not find a Georgia Tech account for this user.",
         )
 
         return
 
     result_context = build_search_result_context(lookup_results["results"][0])
 
-    slack.views_open(
+    open_slack_view_or_ephemeral(
         trigger_id=payload["trigger_id"],
+        channel_id=payload["channel"]["id"],
+        user_id=payload["user"]["id"],
         view={
             "type": "modal",
             "title": {"type": "plain_text", "text": "Checkpoint"},
             "blocks": format_search_result_blocks(result_context, payload["user"]["id"]),
         },
+        text=result_context["givenName"] + " " + result_context["surname"],
     )
 
 
