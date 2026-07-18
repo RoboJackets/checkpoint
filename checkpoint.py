@@ -4494,7 +4494,10 @@ def handle_slack_message_event(event: Dict[str, Any]) -> None:
             update_crosswalk_slack_user_id(customer_slack_user_id, customer_directory_id)
             break
 
-    if customer_slack_user_id is not None and cache.get("sent_customer_message_" + customer_slack_user_id) is not None:
+    if (
+        customer_slack_user_id is not None
+        and cache.get("sent_customer_message_" + customer_slack_user_id) is not None
+    ):
         return
 
     if customer_slack_user_id is not None:
@@ -4563,7 +4566,8 @@ def handle_slack_message_event(event: Dict[str, Any]) -> None:
                         ):
                             for payment in transaction["payment"]:
                                 if (
-                                    "method" in payment  # pylint: disable=too-many-boolean-expressions
+                                    "method"  # pylint: disable=too-many-boolean-expressions
+                                    in payment
                                     and payment["method"] == "square"
                                     and "amount" in payment
                                     and payment["amount"] == "0.00"
