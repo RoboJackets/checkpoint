@@ -1226,24 +1226,24 @@ gtadAttribute attributeName model =
             Nothing
 
 
-isGtadAccountDisabled : LdapEntry -> Bool
-isGtadAccountDisabled entry =
+gtadAccountIsDisabled : LdapEntry -> Maybe Bool
+gtadAccountIsDisabled entry =
     case Dict.get "userAccountControl" entry.attributes of
         Just attributeList ->
             case List.head attributeList of
                 Just value ->
                     case String.toInt value of
                         Just uac ->
-                            Bitwise.and uac 2 /= 0
+                            Just (Bitwise.and uac 2 /= 0)
 
                         Nothing ->
-                            False
+                            Nothing
 
                 Nothing ->
-                    False
+                    Nothing
 
         Nothing ->
-            False
+            Nothing
 
 
 gtadGrouperGroupNames : LdapEntry -> List String
@@ -1993,19 +1993,23 @@ viewPerson model =
                                                             []
 
                                                         Just (Ok (Just account)) ->
-                                                            if isGtadAccountDisabled account then
-                                                                [ span [ class "badge", class "rounded-pill", class "text-bg-secondary", class "me-1" ] [ text "disabled" ] ]
+                                                            let
+                                                                groups : List String
+                                                                groups =
+                                                                    gtadGrouperGroupNames account
+                                                            in
+                                                            case gtadAccountIsDisabled account of
+                                                                Just True ->
+                                                                    [ span [ class "badge", class "rounded-pill", class "text-bg-secondary", class "me-1" ] [ text "disabled" ] ]
 
-                                                            else
-                                                                let
-                                                                    groups : List String
-                                                                    groups =
-                                                                        gtadGrouperGroupNames account
-                                                                in
-                                                                if List.isEmpty groups then
-                                                                    [ span [ class "badge", class "rounded-pill", class "text-bg-primary", class "me-1" ] [ text "enabled" ] ]
+                                                                Just False ->
+                                                                    if List.isEmpty groups then
+                                                                        [ span [ class "badge", class "rounded-pill", class "text-bg-primary", class "me-1" ] [ text "enabled" ] ]
 
-                                                                else
+                                                                    else
+                                                                        List.map (\groupName -> span [ class "badge", class "rounded-pill", class "text-bg-primary", class "me-1" ] [ text groupName ]) groups
+
+                                                                Nothing ->
                                                                     List.map (\groupName -> span [ class "badge", class "rounded-pill", class "text-bg-primary", class "me-1" ] [ text groupName ]) groups
 
                                                         Just (Ok Nothing) ->
