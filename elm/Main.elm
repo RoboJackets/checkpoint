@@ -1997,6 +1997,10 @@ viewPerson model =
                                                                 groups : List String
                                                                 groups =
                                                                     gtadGrouperGroupNames account
+
+                                                                groupBadges : List (Html msg)
+                                                                groupBadges =
+                                                                    List.map (\groupName -> span [ class "badge", class "rounded-pill", class "text-bg-primary", class "me-1" ] [ text groupName ]) groups
                                                             in
                                                             case gtadAccountIsDisabled account of
                                                                 Just True ->
@@ -2007,10 +2011,10 @@ viewPerson model =
                                                                         [ span [ class "badge", class "rounded-pill", class "text-bg-primary", class "me-1" ] [ text "enabled" ] ]
 
                                                                     else
-                                                                        List.map (\groupName -> span [ class "badge", class "rounded-pill", class "text-bg-primary", class "me-1" ] [ text groupName ]) groups
+                                                                        groupBadges
 
                                                                 Nothing ->
-                                                                    List.map (\groupName -> span [ class "badge", class "rounded-pill", class "text-bg-primary", class "me-1" ] [ text groupName ]) groups
+                                                                    groupBadges
 
                                                         Just (Ok Nothing) ->
                                                             []
