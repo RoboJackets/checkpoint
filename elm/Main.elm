@@ -1,5 +1,6 @@
 module Main exposing (..)
 
+import Bitwise
 import Browser
 import Browser.Dom exposing (..)
 import Browser.Navigation as Nav
@@ -1225,6 +1226,31 @@ gtadAttribute attributeName model =
             Nothing
 
 
+isGtadAccountDisabled : LdapEntry -> Bool
+isGtadAccountDisabled entry =
+    case Dict.get "userAccountControl" entry.attributes of
+        Just attributeList ->
+            case List.head attributeList of
+                Just value ->
+                    case String.toInt value of
+                        Just uac ->
+                            Bitwise.and uac 2 /= 0
+
+                        Nothing ->
+                            False
+
+                Nothing ->
+                    False
+
+        Nothing ->
+            False
+
+
+gtadGrouperGroupNames : LdapEntry -> List String
+gtadGrouperGroupNames entry =
+    List.sort (List.filterMap (\groupName -> Dict.get groupName groupNameMap) (Maybe.withDefault [] (Dict.get "memberOf" entry.attributes)))
+
+
 getSelectedPersonTitle : Model -> Maybe String
 getSelectedPersonTitle model =
     (matchedSearchResult model |> Maybe.andThen .title)
@@ -1967,7 +1993,20 @@ viewPerson model =
                                                             []
 
                                                         Just (Ok (Just account)) ->
-                                                            List.map (\groupName -> span [ class "badge", class "rounded-pill", class "text-bg-primary", class "me-1" ] [ text groupName ]) (List.sort (List.filterMap (\groupName -> Dict.get groupName groupNameMap) (Maybe.withDefault [] (Dict.get "memberOf" account.attributes))))
+                                                            if isGtadAccountDisabled account then
+                                                                [ span [ class "badge", class "rounded-pill", class "text-bg-secondary", class "me-1" ] [ text "disabled" ] ]
+
+                                                            else
+                                                                let
+                                                                    groups : List String
+                                                                    groups =
+                                                                        gtadGrouperGroupNames account
+                                                                in
+                                                                if List.isEmpty groups then
+                                                                    [ span [ class "badge", class "rounded-pill", class "text-bg-primary", class "me-1" ] [ text "enabled" ] ]
+
+                                                                else
+                                                                    List.map (\groupName -> span [ class "badge", class "rounded-pill", class "text-bg-primary", class "me-1" ] [ text groupName ]) groups
 
                                                         Just (Ok Nothing) ->
                                                             []
