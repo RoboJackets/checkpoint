@@ -4,3 +4,4 @@ max-line-length = 100
 per-file-ignores =
     grouper_mock.py:E501
     ldap_mock.py:E203
+    checkpoint.py:E501
