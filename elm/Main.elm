@@ -875,25 +875,32 @@ removePrimaryAffiliation primaryAffiliation thisAffiliation =
 searchResultToHtml : Dict String (Maybe String) -> SearchResult -> Html msg
 searchResultToHtml majors result =
     let
-        titleNode : Html msg
-        titleNode =
-            case result.title of
-                Just t ->
-                    if result.titleIsAuthoritative then
-                        text t
+        renderTitle : String -> Html msg
+        renderTitle title =
+            if result.titleIsAuthoritative then
+                text title
 
-                    else
-                        span [ class "text-secondary" ] [ text t ]
+            else
+                span [ class "text-secondary" ] [ text title ]
 
-                Nothing ->
-                    text ""
+        titleAndDepartment : List (Html msg)
+        titleAndDepartment =
+            case ( result.title, Maybe.map (lookupOrganizationalUnit majors) result.organizationalUnit ) of
+                ( Just title, Just ou ) ->
+                    [ renderTitle title, text (" • " ++ ou) ]
+
+                ( Just title, Nothing ) ->
+                    [ renderTitle title ]
+
+                ( Nothing, Just ou ) ->
+                    [ text ou ]
+
+                ( Nothing, Nothing ) ->
+                    []
     in
     div [ class "mb-4" ]
         ([ h4 [ class "mb-1" ] [ a [ href (urlUnparser (ViewPerson result.directoryId)) ] [ text (result.givenName ++ " " ++ result.surname) ] ]
-         , div [ class "mb-1" ]
-            [ titleNode
-            , text (" • " ++ Maybe.withDefault "" (Maybe.map (lookupOrganizationalUnit majors) result.organizationalUnit))
-            ]
+         , div [ class "mb-1" ] titleAndDepartment
          , span [ class "badge", class "rounded-pill", class "text-bg-primary", class "me-1" ] [ text (Maybe.withDefault "" result.primaryAffiliation) ]
          ]
             ++ List.map affiliationToBadge (List.filter (removePrimaryAffiliation result.primaryAffiliation) result.affiliations)
