@@ -46,8 +46,8 @@ magnifyIcon =
     svg [ Svg.Attributes.width "16", Svg.Attributes.height "16", Svg.Attributes.viewBox "2 2 20 20", Svg.Attributes.fill "currentColor", Svg.Attributes.style "top: -0.125em; position: relative;" ] [ path [ d "M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z" ] [] ]
 
 
-brightness6Icon : Svg msg
-brightness6Icon =
+themeIcon : Svg msg
+themeIcon =
     svg [ Svg.Attributes.width "1.25em", Svg.Attributes.height "1.25em", Svg.Attributes.viewBox "0 0 24 24", Svg.Attributes.fill "currentColor", Svg.Attributes.style "top: -0.05em; position: relative;" ] [ path [ d "M12,18V6A6,6 0 0,1 18,12A6,6 0 0,1 12,18M20,15.31L23.31,12L20,8.69V4H15.31L12,0.69L8.69,4H4V8.69L0.69,12L4,15.31V20H8.69L12,23.31L15.31,20H20V15.31Z" ] [] ]
 
 
@@ -892,13 +892,26 @@ viewSearchBox model =
 renderUserChrome : Model -> Html Msg
 renderUserChrome model =
     div [ style "text-align" "right", style "margin" "1em", class "text-secondary", class "d-flex", class "align-items-center", class "justify-content-end", class "gap-2" ]
-        [ themeToggleButton
+        [ themeToggleButton model.theme
         , text model.loggedInUsername
         ]
 
 
-themeToggleButton : Html Msg
-themeToggleButton =
+themeToggleButton : String -> Html Msg
+themeToggleButton currentTheme =
+    let
+        nextTheme : String
+        nextTheme =
+            if currentTheme == "dark" then
+                "light"
+
+            else
+                "dark"
+
+        tooltip : String
+        tooltip =
+            "Switch to " ++ nextTheme ++ " theme"
+    in
     button
         [ type_ "button"
         , style "background" "none"
@@ -906,10 +919,11 @@ themeToggleButton =
         , style "padding" "0"
         , style "color" "inherit"
         , style "line-height" "1"
-        , attribute "aria-label" "Toggle color theme"
+        , title tooltip
+        , attribute "aria-label" tooltip
         , onClick ToggleTheme
         ]
-        [ brightness6Icon ]
+        [ themeIcon ]
 
 
 affiliationToBadge : String -> Html msg
@@ -1011,7 +1025,7 @@ renderNavbar model =
                     ]
                 ]
             , div [ class "text-secondary", class "ms-auto", class "d-none", class "d-md-flex", class "align-items-center", class "gap-2" ]
-                [ themeToggleButton
+                [ themeToggleButton model.theme
                 , text model.loggedInUsername
                 ]
             ]
