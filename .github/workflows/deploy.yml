@@ -31,7 +31,6 @@ jobs:
     permissions:
       id-token: write
       contents: read
-      packages: read
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -52,4 +51,4 @@ jobs:
           NOMAD_ADDR: https://nomad.bcdc.robojackets.net
         working-directory: ./.nomad/
         run: |
-          nomad run -var image=ghcr.io/robojackets/checkpoint@${{ inputs.image-digest }} -var registry_username=${{ github.actor }} -var registry_password=${{ secrets.GITHUB_TOKEN }} -var hostname=${{ inputs.environment == 'test' && 'checkpoint-test.bcdc.robojackets.net' || (inputs.environment == 'production' && 'checkpoint.bcdc.robojackets.net' || 'https://robojackets.org') }} checkpoint.nomad
+          nomad run -var image=ghcr.io/robojackets/checkpoint@${{ inputs.image-digest }} -var hostname=${{ inputs.environment == 'test' && 'checkpoint-test.bcdc.robojackets.net' || (inputs.environment == 'production' && 'checkpoint.bcdc.robojackets.net' || 'https://robojackets.org') }} checkpoint.nomad
