@@ -4539,8 +4539,12 @@ def handle_slack_message_event(event: Dict[str, Any]) -> None:
     """
     Handle a Slack message event
     """
+    user = event.get("user")
+    if user is None:
+        return
+
     message_text = event.get("text", "").lower()
-    lookup_target = determine_slack_lookup_target(event.get("text", ""), event["user"])
+    lookup_target = determine_slack_lookup_target(event.get("text", ""), user)
 
     if "@" in lookup_target:
         lookup_results = search_by_email(
@@ -4975,8 +4979,14 @@ def handle_slack_nessage() -> Dict[str, str]:
             return {"challenge": body["challenge"]}
 
         if body is not None and body.get("type") == "event_callback":
-            if body.get("event", {}).get("thread_ts") is None:
-                handle_slack_message_event.delay(body.get("event", {}))
+            event = body.get("event") or {}
+            if (
+                event.get("type") == "message"
+                and event.get("subtype") is None
+                and event.get("thread_ts") is None
+                and "user" in event
+            ):
+                handle_slack_message_event.delay(event)
             return {"status": "ok"}
 
     raise BadRequest("Unsupported payload type")
