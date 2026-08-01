@@ -913,7 +913,7 @@ renderLoggedInUsername : Model -> Html msg
 renderLoggedInUsername model =
     case model.loggedInDirectoryId of
         Just directoryId ->
-            a [ class "text-secondary", href (urlUnparser (ViewPerson directoryId)) ] [ text model.loggedInUsername ]
+            a [ class "text-secondary", class "text-decoration-none", href (urlUnparser (ViewPerson directoryId)) ] [ text model.loggedInUsername ]
 
         Nothing ->
             text model.loggedInUsername
