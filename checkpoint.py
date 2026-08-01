@@ -1620,10 +1620,18 @@ def spa(directory_id: Union[str, None] = None) -> Any:  # pylint: disable=unused
             403,
         )
 
+    logged_in_search_results = search_by_username(
+        str(session["username"]), with_title_and_organization=False
+    )
+    logged_in_directory_id: Union[str, None] = None
+    if len(logged_in_search_results["results"]) == 1:
+        logged_in_directory_id = logged_in_search_results["results"][0]["directoryId"]
+
     return render_template(
         "app.html",
         elm_model={
             "username": session["username"],
+            "directoryId": logged_in_directory_id,
             "majors": get_majors(),
             "grouperGroups": get_grouper_groups(),
             "keycloakDeepLinkBaseUrl": urlunparse(
