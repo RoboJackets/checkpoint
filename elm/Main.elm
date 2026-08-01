@@ -1549,7 +1549,7 @@ viewPerson model =
                                     "There was a network error while retrieving GTED accounts."
 
                                 BadStatus statusCode ->
-                                    "The server returned status code " ++ String.fromInt statusCode ++ " white retrieving GTED accounts."
+                                    "The server returned status code " ++ String.fromInt statusCode ++ " while retrieving GTED accounts."
 
                                 BadBody errorMessage ->
                                     "There was an error parsing GTED accounts: " ++ errorMessage ++ "."
@@ -1580,7 +1580,7 @@ viewPerson model =
                                             "There was a network error while retrieving Whitepages entries."
 
                                         BadStatus statusCode ->
-                                            "The server returned status code " ++ String.fromInt statusCode ++ " white retrieving Whitepages entries."
+                                            "The server returned status code " ++ String.fromInt statusCode ++ " while retrieving Whitepages entries."
 
                                         BadBody errorMessage ->
                                             "There was an error parsing Whitepages entries: " ++ errorMessage ++ "."
@@ -1611,7 +1611,7 @@ viewPerson model =
                                             "There was a network error while retrieving the Keycloak account."
 
                                         BadStatus statusCode ->
-                                            "The server returned status code " ++ String.fromInt statusCode ++ " white retrieving the Keycloak account."
+                                            "The server returned status code " ++ String.fromInt statusCode ++ " while retrieving the Keycloak account."
 
                                         BadBody errorMessage ->
                                             "There was an error parsing the Keycloak account: " ++ errorMessage ++ "."
@@ -1673,7 +1673,7 @@ viewPerson model =
                                             "There was a network error while retrieving events."
 
                                         BadStatus statusCode ->
-                                            "The server returned status code " ++ String.fromInt statusCode ++ " white retrieving events."
+                                            "The server returned status code " ++ String.fromInt statusCode ++ " while retrieving events."
 
                                         BadBody errorMessage ->
                                             "There was an error parsing events: " ++ errorMessage ++ "."
