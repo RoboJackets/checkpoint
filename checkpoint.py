@@ -4963,7 +4963,7 @@ def handle_slack_interaction() -> Dict[str, str]:
 
 
 @app.post("/slack/message")
-def handle_slack_nessage() -> Dict[str, str]:
+def handle_slack_message() -> Dict[str, str]:
     """
     Handle an event from Slack
     """
