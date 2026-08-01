@@ -712,6 +712,42 @@ def get_actor(**kwargs: str) -> Dict[str, Union[str, None]]:
             "actorLink": "/view/" + gted_account["gtPersonDirectoryId"],
         }
 
+    if "impersonator" in kwargs and "impersonator_realm" in kwargs:
+        for realm in get_realms():
+            if kwargs["impersonator_realm"] == realm["realm"]:
+                keycloak_response = keycloak.get(
+                    url=urlunparse(
+                        (
+                            urlparse(app.config["KEYCLOAK_METADATA_URL"]).scheme,
+                            urlparse(app.config["KEYCLOAK_METADATA_URL"]).netloc,
+                            "/admin/realms/" + realm["realm"] + "/users",
+                            "",
+                            "",
+                            "",
+                        )
+                    ),
+                    params={
+                        "username": kwargs["impersonator"],
+                        "exact": True,
+                    },
+                    timeout=(5, 5),
+                )
+                keycloak_response.raise_for_status()
+
+                keycloak_accounts = keycloak_response.json()
+
+                if len(keycloak_accounts) == 0:
+                    raise InternalServerError(
+                        "Failed to locate Keycloak account for impersonator "
+                        + kwargs["impersonator"]
+                        + " in realm "
+                        + kwargs["impersonator_realm"]
+                    )
+
+                return get_actor(  # type: ignore
+                    realmId=realm["id"], userId=keycloak_accounts[0]["id"]
+                )
+
     if "realmId" in kwargs and "userId" in kwargs:
         for realm in get_realms():
             if kwargs["realmId"] == realm["id"]:
@@ -2276,26 +2312,38 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
         keycloak_response.raise_for_status()
 
         for event in keycloak_response.json():
-            if event["clientId"].startswith("http"):
-                client_id = urlparse(event["clientId"]).netloc
+            if event["type"] == "IMPERSONATE":
+                description = (
+                    "impersonated "
+                    + get_actor(gtPersonDirectoryId=directory_id)["actorDisplayName"]
+                    + "'s Keycloak account"
+                )
+                actor = get_actor(**event["details"])
             else:
-                client_id = event["clientId"]
+                if event["clientId"].startswith("http"):
+                    client_id = urlparse(event["clientId"]).netloc
+                else:
+                    client_id = event["clientId"]
 
-            if event["type"] == "LOGIN":
-                description = "logged into " + client_id
-            elif event["type"] == "CODE_TO_TOKEN":
-                description = "logged into " + client_id
-            elif event["type"] == "REGISTER":
-                description = "logged into " + client_id
-            elif event["type"] == "LOGOUT":
-                description = "logged out of " + client_id
-            elif event["type"] == "LOGIN_ERROR":
-                description = "failed to log into " + client_id
-            elif event["type"] == "LOGOUT_ERROR":
-                description = "failed to log out of " + client_id
-            else:
-                print(dumps(event))
-                raise InternalServerError("Unrecognized type in Keycloak event: " + event["type"])
+                if event["type"] == "LOGIN":
+                    description = "logged into " + client_id
+                elif event["type"] == "CODE_TO_TOKEN":
+                    description = "logged into " + client_id
+                elif event["type"] == "REGISTER":
+                    description = "logged into " + client_id
+                elif event["type"] == "LOGOUT":
+                    description = "logged out of " + client_id
+                elif event["type"] == "LOGIN_ERROR":
+                    description = "failed to log into " + client_id
+                elif event["type"] == "LOGOUT_ERROR":
+                    description = "failed to log out of " + client_id
+                else:
+                    print(dumps(event))
+                    raise InternalServerError(
+                        "Unrecognized type in Keycloak event: " + event["type"]
+                    )
+
+                actor = get_actor(gtPersonDirectoryId=directory_id)
 
             events.append(
                 {
@@ -2316,7 +2364,7 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
                         )
                     ),
                 }
-                | get_actor(gtPersonDirectoryId=directory_id)
+                | actor
             )
 
         keycloak_response = keycloak.get(
