@@ -233,6 +233,7 @@ type alias Model =
     { navKey : Nav.Key
     , route : Maybe Route
     , loggedInUsername : String
+    , loggedInDirectoryId : Maybe String
     , majors : Dict String (Maybe String)
     , grouperGroups : List String
     , searchQuery : String
@@ -589,6 +590,17 @@ buildInitialModel serverData url navKey =
     { navKey = navKey
     , route = Url.Parser.parse urlParser url
     , loggedInUsername = String.trim (Result.withDefault "" (decodeValue (at [ "username" ] string) serverData))
+    , loggedInDirectoryId =
+        case Result.withDefault Nothing (decodeValue (at [ "directoryId" ] (nullable string)) serverData) of
+            Just directoryId ->
+                if String.trim directoryId == "" then
+                    Nothing
+
+                else
+                    Just (String.trim directoryId)
+
+            Nothing ->
+                Nothing
     , majors = Result.withDefault Dict.empty (decodeValue (at [ "majors" ] (Json.Decode.dict (nullable string))) serverData)
     , grouperGroups = Result.withDefault [] (decodeValue (at [ "grouperGroups" ] (Json.Decode.list string)) serverData)
     , searchQuery =
@@ -893,8 +905,18 @@ renderUserChrome : Model -> Html Msg
 renderUserChrome model =
     div [ style "text-align" "right", style "margin" "1em", class "text-secondary", class "d-flex", class "align-items-center", class "justify-content-end", class "gap-2" ]
         [ themeToggleButton model.theme
-        , text model.loggedInUsername
+        , renderLoggedInUsername model
         ]
+
+
+renderLoggedInUsername : Model -> Html msg
+renderLoggedInUsername model =
+    case model.loggedInDirectoryId of
+        Just directoryId ->
+            a [ class "text-secondary", class "text-decoration-none", href (urlUnparser (ViewPerson directoryId)) ] [ text model.loggedInUsername ]
+
+        Nothing ->
+            text model.loggedInUsername
 
 
 themeToggleButton : String -> Html Msg
@@ -1026,7 +1048,7 @@ renderNavbar model =
                 ]
             , div [ class "text-secondary", class "ms-auto", class "d-none", class "d-md-flex", class "align-items-center", class "gap-2" ]
                 [ themeToggleButton model.theme
-                , text model.loggedInUsername
+                , renderLoggedInUsername model
                 ]
             ]
         ]
