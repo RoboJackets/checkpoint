@@ -4865,7 +4865,7 @@ def handle_slack_message_event(event: Dict[str, Any]) -> None:
                 or "venmo" in message_text
                 or "zelle" in message_text
                 or "reimburse" in message_text
-                or "refund" in message_text
+                or "fund" in message_text
             ):
                 # payment-related request
                 slack.chat_postMessage(
