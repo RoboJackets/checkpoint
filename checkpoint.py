@@ -4894,7 +4894,6 @@ def handle_slack_message_event(event: Dict[str, Any]) -> None:
 
             elif (
                 "gate" in message_text
-                or "access" in message_text
                 or "door" in message_text
                 or "building" in message_text
             ):
