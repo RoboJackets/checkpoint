@@ -3700,6 +3700,18 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
 
                     elif (
                         "name" in item["events"][0]
+                        and item["events"][0]["name"] == "risky_sensitive_action_blocked"
+                    ):
+                        event_description = (
+                            "was blocked from attempting sensitive action "
+                            + get_parameter_value(
+                                "sensitive_action_name", item["events"][0]["parameters"]
+                            )
+                            + " in Google Workspace"
+                        )
+
+                    elif (
+                        "name" in item["events"][0]
                         and item["events"][0]["name"] == "email_forwarding_out_of_domain"
                     ):
                         event_description = (
