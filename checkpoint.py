@@ -3712,6 +3712,30 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
                             )
                         )
 
+                    elif (
+                        "name" in item["events"][0]
+                        and item["events"][0]["name"] == "dbsc_key_binding"
+                    ):
+                        event_status = None
+
+                        if (
+                            "status" in item["events"][0]
+                            and item["events"][0]["status"] is not None
+                            and "eventStatus" in item["events"][0]["status"]
+                        ):
+                            event_status = item["events"][0]["status"]["eventStatus"]
+
+                        if event_status == "SUCCEEDED":
+                            event_description = "bound a Google Workspace session to a device"
+                        elif event_status == "FAILED":
+                            event_description = (
+                                "failed to bind a Google Workspace session to a device"
+                            )
+                        else:
+                            raise InternalServerError(
+                                "Unable to determine DBSC key binding event status: " + dumps(item)
+                            )
+
                     else:
                         raise InternalServerError(
                             "Unable to determine login event type: " + dumps(item)
