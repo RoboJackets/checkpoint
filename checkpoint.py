@@ -4663,7 +4663,39 @@ def handle_slack_message_event(event: Dict[str, Any]) -> None:
 
         apiary_account = get_apiary_account(customer_directory_id, is_frontend_request=False)
 
-        if "id" not in apiary_account or apiary_account["id"] is None:
+
+        if (
+            "slack" in message_text
+            or "announc" in message_text
+            or "channel" in message_text
+            or "<#c" in message_text
+            or "<#g" in message_text
+        ):
+            # slack-related request
+            slack.chat_postMessage(
+                channel=event["channel"],
+                thread_ts=event.get("ts", None),
+                blocks=[
+                    SectionBlock(
+                        text=TextObject(
+                            type="mrkdwn",
+                            text=app.config["SLACK_ADMINS_SLACK_MENTION"],
+                        )
+                    ),
+                    footer_block,
+                ],
+            )
+            sent_customer_message = True
+
+            technician_context.append(
+                SectionBlock(
+                    text=TextObject(
+                        type="mrkdwn",
+                        text="This appears to be a Slack administration request.",
+                    )
+                )
+            )
+        elif "id" not in apiary_account or apiary_account["id"] is None:
             # customer does not have an apiary account, ask them to pay dues
             slack.chat_postMessage(
                 channel=event["channel"],
@@ -4863,38 +4895,6 @@ def handle_slack_message_event(event: Dict[str, Any]) -> None:
                 )
 
             if (
-                "slack" in message_text
-                or "announc" in message_text
-                or "channel" in message_text
-                or "<#c" in message_text
-                or "<#g" in message_text
-            ):
-                # slack-related request
-                slack.chat_postMessage(
-                    channel=event["channel"],
-                    thread_ts=event.get("ts", None),
-                    blocks=[
-                        SectionBlock(
-                            text=TextObject(
-                                type="mrkdwn",
-                                text=app.config["SLACK_ADMINS_SLACK_MENTION"],
-                            )
-                        ),
-                        footer_block,
-                    ],
-                )
-                sent_customer_message = True
-
-                technician_context.append(
-                    SectionBlock(
-                        text=TextObject(
-                            type="mrkdwn",
-                            text="This appears to be a Slack administration request.",
-                        )
-                    )
-                )
-
-            elif (
                 "uber" in message_text  # pylint: disable=too-many-boolean-expressions
                 or "lyft" in message_text
                 or "paypal" in message_text
