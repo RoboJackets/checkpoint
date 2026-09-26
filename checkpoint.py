@@ -4663,7 +4663,6 @@ def handle_slack_message_event(event: Dict[str, Any]) -> None:
 
         apiary_account = get_apiary_account(customer_directory_id, is_frontend_request=False)
 
-
         if (
             "slack" in message_text
             or "announc" in message_text
