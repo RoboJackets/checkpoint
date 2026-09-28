@@ -4927,7 +4927,7 @@ def handle_slack_message_event(event: Dict[str, Any]) -> None:
                     )
                 )
 
-            elif "gate" in message_text or "door" in message_text or "building" in message_text:
+            elif ("gate" in message_text and "gatech" not in message_text) or "door" in message_text or "building" in message_text:
                 # physical access-related request
                 slack.chat_postMessage(
                     channel=event["channel"],
