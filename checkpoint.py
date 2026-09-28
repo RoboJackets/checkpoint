@@ -4664,7 +4664,7 @@ def handle_slack_message_event(event: Dict[str, Any]) -> None:
         apiary_account = get_apiary_account(customer_directory_id, is_frontend_request=False)
 
         if (
-            "slack" in message_text
+            "slack" in message_text  # pylint: disable=too-many-boolean-expressions
             or "announc" in message_text
             or ("channel" in message_text and "youtube" not in message_text)
             or "<#c" in message_text
