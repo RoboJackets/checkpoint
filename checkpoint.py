@@ -4666,7 +4666,7 @@ def handle_slack_message_event(event: Dict[str, Any]) -> None:
         if (
             "slack" in message_text
             or "announc" in message_text
-            or "channel" in message_text
+            or ("channel" in message_text and "youtube" not in message_text)
             or "<#c" in message_text
             or "<#g" in message_text
         ):
