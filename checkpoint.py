@@ -878,6 +878,9 @@ def get_client_display_name(**kwargs: str) -> str:
                     ),
                     timeout=(5, 5),
                 )
+                if keycloak_response.status_code == 404:
+                    return "unknown client"
+
                 keycloak_response.raise_for_status()
 
                 print(keycloak_response.text)
