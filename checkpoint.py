@@ -3696,6 +3696,9 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
                     ):
                         event_description = "enrolled in Advanced Protection for Google Workspace"
 
+                    elif "name" in item["events"][0] and item["events"][0]["name"] == "2sv_enroll":
+                        event_description = "enrolled in 2-step verification for Google Workspace"
+
                     elif (
                         "name" in item["events"][0]
                         and item["events"][0]["name"] == "recovery_email_edit"
