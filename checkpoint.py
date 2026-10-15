@@ -3701,6 +3701,12 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
 
                     elif (
                         "name" in item["events"][0]
+                        and item["events"][0]["name"] == "passkey_enrolled"
+                    ):
+                        event_description = "enrolled a new passkey for Google Workspace"
+
+                    elif (
+                        "name" in item["events"][0]
                         and item["events"][0]["name"] == "recovery_email_edit"
                     ):
                         event_description = "updated recovery email for Google Workspace"
