@@ -3611,18 +3611,49 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
                             )
 
                     else:
-                        raise InternalServerError(
-                            "Unable to determine admin event type: " + dumps(item)
+                        user_settings_description = describe_workspace_user_settings_event(
+                            item["events"][0], item["id"]["customerId"]
                         )
 
-                events.append(
-                    {
-                        "eventTimestamp": parse_apiary_timestamp_to_unix_millis(item["id"]["time"]),
-                        "eventDescription": event_description,
-                        "eventLink": None,
-                    }
-                    | get_actor(**item["actor"], customer_id=item["id"]["customerId"])
-                )
+                        if user_settings_description is None:
+                            raise InternalServerError(
+                                "Unable to determine admin event type: " + dumps(item)
+                            )
+
+                        event_description = user_settings_description
+
+                    actor = get_actor(**item["actor"], customer_id=item["id"]["customerId"])
+
+                    events.append(
+                        {
+                            "eventTimestamp": parse_apiary_timestamp_to_unix_millis(
+                                item["id"]["time"]
+                            ),
+                            "eventDescription": event_description,
+                            "eventLink": None,
+                        }
+                        | actor
+                    )
+
+                    # The same activity can record several user-settings actions.
+                    for extra_event in item["events"][1:]:
+                        extra_description = describe_workspace_user_settings_event(
+                            extra_event, item["id"]["customerId"]
+                        )
+
+                        if extra_description is None:
+                            continue
+
+                        events.append(
+                            {
+                                "eventTimestamp": parse_apiary_timestamp_to_unix_millis(
+                                    item["id"]["time"]
+                                ),
+                                "eventDescription": extra_description,
+                                "eventLink": None,
+                            }
+                            | actor
+                        )
 
         login_events = activities.list(
             userKey=workspace_account["id"],
@@ -3667,6 +3698,15 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
                         and item["events"][0]["name"] == "titanium_enroll"
                     ):
                         event_description = "enrolled in Advanced Protection for Google Workspace"
+
+                    elif "name" in item["events"][0] and item["events"][0]["name"] == "2sv_enroll":
+                        event_description = "enrolled in 2-step verification for Google Workspace"
+
+                    elif (
+                        "name" in item["events"][0]
+                        and item["events"][0]["name"] == "passkey_enrolled"
+                    ):
+                        event_description = "enrolled a new passkey for Google Workspace"
 
                     elif (
                         "name" in item["events"][0]
@@ -3786,6 +3826,43 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
             )
 
     return events
+
+
+def describe_workspace_user_settings_event(
+    event: Dict[str, Any], customer_id: str
+) -> Union[str, None]:
+    """
+    Describe a supported Google Workspace user-settings admin event.
+
+    Returns None when the event name is not one of those user-settings events.
+    """
+    if "name" not in event:
+        return None
+
+    if event["name"] == "USER_PUT_IN_TWO_STEP_VERIFICATION_GRACE_PERIOD":
+        user_email = get_parameter_value("USER_EMAIL", event["parameters"])
+        grace_period_end = get_parameter_value("NEW_VALUE", event["parameters"]).strip('"')
+        user_display_name = get_actor(email=user_email, customer_id=customer_id)["actorDisplayName"]
+
+        return (
+            "enabled a 2-step verification grace period for "
+            + str(user_display_name)
+            + " until "
+            + grace_period_end
+            + " in Google Workspace"
+        )
+
+    if event["name"] == "GENERATE_2SV_SCRATCH_CODES":
+        user_email = get_parameter_value("USER_EMAIL", event["parameters"])
+        user_display_name = get_actor(email=user_email, customer_id=customer_id)["actorDisplayName"]
+
+        return (
+            "generated 2-step verification scratch codes for "
+            + str(user_display_name)
+            + " in Google Workspace"
+        )
+
+    return None
 
 
 def get_parameter_value(name: str, parameters: List[Dict[str, str]]) -> str:
