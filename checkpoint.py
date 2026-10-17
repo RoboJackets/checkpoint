@@ -1938,7 +1938,7 @@ def search() -> (
     try:  # pylint: disable=too-many-nested-blocks
         # check if the query is formatted like an email address
         return search_by_email(Address(addr_spec=query), with_title_and_organization=False)
-    except InvalidHeaderDefect:
+    except (InvalidHeaderDefect, ValueError):
         # check if the query is formatted like a GT username
         if fullmatch(GEORGIA_TECH_USERNAME_REGEX, query, IGNORECASE) is not None:
             return search_by_username(query, with_title_and_organization=False)
