@@ -76,6 +76,18 @@ USER_AGENT: Final[str] = (
     + environ.get("NOMAD_SHORT_ALLOC_ID", "local")
 )
 
+GENERAL_GROUPER_GTAD_DN: Final[str] = (
+    "CN=general_robojackets_services_gt,OU=grouper-prod,OU=Gted,OU=GT_Resources,DC=ad,DC=gatech,DC=edu"
+)
+DROPBOX_ELIGIBLE_ENTITLEMENT: Final[str] = "/gt/central/services/dropbox/dropbox-eligible/enabled"
+DROPBOX_PROVISIONED_ENTITLEMENT: Final[str] = "/gt/central/services/dropbox/dropbox-access/enabled"
+DROPBOX_STATUS_JOIN_TEAM: Final[str] = "join_team"
+DROPBOX_STATUS_SYNC_GROUPER: Final[str] = "sync_grouper"
+DROPBOX_STATUS_PROVISIONING: Final[str] = "provisioning"
+DROPBOX_STATUS_NOT_ELIGIBLE: Final[str] = "not_eligible"
+DROPBOX_STATUS_REQUEST_ACCOUNT: Final[str] = "request_account"
+DROPBOX_STATUS_PROVISIONED: Final[str] = "provisioned"
+
 # Square error code descriptions from API documentation, to show to technicians
 SQUARE_ERROR_CODE_DESCRIPTIONS: Final[Dict[str, str]] = {
     "INTERNAL_SERVER_ERROR": "A general server error occurred.",
@@ -606,15 +618,14 @@ def search_whitepages(**kwargs: str) -> List[Dict[str, Dict[str, List[str]]]]:
     return records
 
 
-@cache.memoize()
-def search_gtad(uid: str) -> Union[Dict[str, List[str]], None]:
+def connect_gtad() -> Connection:
     """
-    Look up an account in GTAD by uid and return its title/department attributes
+    Open an authenticated connection to GTAD
     """
     gtad_port = app.config.get("GTAD_PORT")
 
     with sentry_sdk.start_span(op="gtad.connect"):
-        ldap = Connection(
+        return Connection(
             Server(
                 app.config.get("GTAD_HOST", "campusad.ad.gatech.edu"),
                 port=int(gtad_port) if gtad_port is not None else None,
@@ -627,21 +638,52 @@ def search_gtad(uid: str) -> Union[Dict[str, List[str]], None]:
             receive_timeout=1,
         )
 
+
+def search_gtad_attributes(uid: str, attributes: List[str]) -> Union[Dict[str, List[str]], None]:
+    """
+    Look up an account in GTAD by uid and return the requested attributes
+    """
+    ldap = connect_gtad()
+
     with sentry_sdk.start_span(op="gtad.search"):
         result = ldap.search(
             search_base="dc=ad,dc=gatech,dc=edu",
             search_filter="(uid=" + uid + ")",
-            attributes=["title", "department"],
+            attributes=attributes,
         )
 
         if result is True:
             for entry in ldap.entries:
-                attributes: Dict[str, List[str]] = loads(entry.entry_to_json()).get(
+                entry_attributes: Dict[str, List[str]] = loads(entry.entry_to_json()).get(
                     "attributes", {}
                 )
-                return attributes
+                return entry_attributes
 
     return None
+
+
+@cache.memoize()
+def search_gtad(uid: str) -> Union[Dict[str, List[str]], None]:
+    """
+    Look up an account in GTAD by uid and return its title/department attributes
+    """
+    return search_gtad_attributes(uid, ["title", "department"])
+
+
+def get_gtad_member_of(uid: str) -> Union[List[str], None]:
+    """
+    Return the GTAD memberOf values for a uid, or None when the account does not exist
+    """
+    attributes = search_gtad_attributes(uid, ["memberOf"])
+
+    if attributes is None:
+        return None
+
+    member_of = attributes.get("memberOf")
+    if not isinstance(member_of, list):
+        return []
+
+    return [value for value in member_of if isinstance(value, str)]
 
 
 @cache.cached(key_prefix="realms")
@@ -4195,10 +4237,17 @@ def get_grouper_memberships(directory_id: str) -> Dict[str, Any]:
 
         primary_username = gted_account["gtPrimaryGTAccountUsername"]
 
+    return fetch_grouper_memberships(primary_username)
+
+
+def fetch_grouper_memberships(username: str) -> Dict[str, Any]:
+    """
+    Get Grouper group memberships for a username
+    """
     grouper_response = get(
         url=app.config["GROUPER_BASE_URL"]
         + "/grouper-ws/servicesRest/v4_0_000/subjects/"
-        + primary_username
+        + username
         + "/memberships",
         auth=(app.config["GROUPER_USERNAME"], app.config["GROUPER_PASSWORD"]),
         headers={
@@ -4650,6 +4699,208 @@ def handle_slack_search_request(payload: Dict[str, Any]) -> None:
     )
 
 
+def has_grouper_eligible_team(teams: List[Any], grouper_groups: List[str]) -> bool:
+    """
+    Return whether any Apiary team name matches a Grouper group extension
+    """
+    group_names = {group_name.lower() for group_name in grouper_groups}
+
+    for team in teams:
+        if not isinstance(team, dict):
+            continue
+
+        name = team.get("name")
+        if isinstance(name, str) and name.lower() in group_names:
+            return True
+
+    return False
+
+
+def is_in_general_grouper_group(memberships: Dict[str, Any]) -> bool:
+    """
+    Return whether Grouper memberships include the general group
+    """
+    groups = memberships.get("wsGroups") or []
+
+    if not isinstance(groups, list):
+        return False
+
+    for group in groups:
+        if isinstance(group, dict) and group.get("extension") == "general":
+            return True
+
+    return False
+
+
+def is_in_general_gtad_group(member_of: Union[List[str], None]) -> bool:
+    """
+    Return whether a GTAD memberOf list includes the general Grouper group
+    """
+    if member_of is None:
+        return False
+
+    return GENERAL_GROUPER_GTAD_DN in member_of
+
+
+def gted_accounts_have_entitlement(accounts: List[Dict[str, Any]], entitlement: str) -> bool:
+    """
+    Return whether any GTED account has the given entitlement
+    """
+    for account in accounts:
+        entitlements = account.get("gtAccountEntitlement")
+        if isinstance(entitlements, list) and entitlement in entitlements:
+            return True
+
+    return False
+
+
+def diagnose_dropbox_access(
+    teams: List[Any],
+    grouper_groups: List[str],
+    grouper_memberships: Dict[str, Any],
+    gtad_member_of: Union[List[str], None],
+    gted_accounts: List[Dict[str, Any]],
+) -> str:
+    """
+    Decide the next Dropbox access step from Apiary, Grouper, GTAD, and GTED state
+    """
+    if not has_grouper_eligible_team(teams, grouper_groups):
+        return DROPBOX_STATUS_JOIN_TEAM
+
+    if not is_in_general_grouper_group(grouper_memberships):
+        return DROPBOX_STATUS_SYNC_GROUPER
+
+    if not is_in_general_gtad_group(gtad_member_of):
+        return DROPBOX_STATUS_PROVISIONING
+
+    if not gted_accounts_have_entitlement(gted_accounts, DROPBOX_ELIGIBLE_ENTITLEMENT):
+        return DROPBOX_STATUS_NOT_ELIGIBLE
+
+    if not gted_accounts_have_entitlement(gted_accounts, DROPBOX_PROVISIONED_ENTITLEMENT):
+        return DROPBOX_STATUS_REQUEST_ACCOUNT
+
+    return DROPBOX_STATUS_PROVISIONED
+
+
+def sync_apiary_access(username: str) -> None:
+    """
+    Ask Apiary to sync a user's access into Grouper and downstream systems
+    """
+    response = apiary.post(
+        url=app.config["APIARY_BASE_URL"] + "/api/v1/users/" + username + "/sync-access",
+        timeout=(5, 60),
+    )
+    response.raise_for_status()
+
+
+def dropbox_access_reply(
+    status: str, plain_text_greeting: str, markdown_greeting: str
+) -> Dict[str, str]:
+    """
+    Build the customer and technician text for a Dropbox access diagnosis
+    """
+    if status == DROPBOX_STATUS_JOIN_TEAM:
+        plain_body = (
+            " Dropbox access requires you to be on a RoboJackets team."
+            " Join a team at https://my.robojackets.org/teams."
+        )
+        markdown_body = (
+            " Dropbox access requires you to be on a RoboJackets team."
+            " Join a team at <https://my.robojackets.org/teams|my.robojackets.org/teams>."
+        )
+        technician_note = "User is not a member of any Apiary team with a Grouper group."
+    elif status == DROPBOX_STATUS_SYNC_GROUPER:
+        plain_body = (
+            " You're on a team, but your access hasn't synced to Grouper yet."
+            " I started a sync. Try again in a few minutes."
+        )
+        markdown_body = plain_body
+        technician_note = (
+            "User is on a Grouper-eligible team but is not in the general Grouper group."
+            " Triggered Apiary sync-access."
+        )
+    elif status == DROPBOX_STATUS_PROVISIONING:
+        plain_body = " Your access is still provisioning and can take up to 24 hours."
+        markdown_body = plain_body
+        technician_note = (
+            "User is in the general Grouper group but is not in that group in GTAD."
+            " Provisioning can take up to 24 hours."
+        )
+    elif status == DROPBOX_STATUS_NOT_ELIGIBLE:
+        plain_body = " You aren't eligible for a Georgia Tech Dropbox account."
+        markdown_body = plain_body
+        technician_note = "User is not eligible for a Georgia Tech Dropbox account."
+    elif status == DROPBOX_STATUS_REQUEST_ACCOUNT:
+        plain_body = (
+            " Follow the instructions at https://dropbox.gatech.edu/"
+            " to request a Georgia Tech Dropbox account."
+        )
+        markdown_body = (
+            " Follow the instructions at <https://dropbox.gatech.edu/|dropbox.gatech.edu>"
+            " to request a Georgia Tech Dropbox account."
+        )
+        technician_note = (
+            "User is eligible for a Georgia Tech Dropbox account"
+            " but does not have the provisioned entitlement."
+        )
+    elif status == DROPBOX_STATUS_PROVISIONED:
+        plain_body = " You already have a Georgia Tech Dropbox account."
+        markdown_body = plain_body
+        technician_note = "User has a provisioned Georgia Tech Dropbox account."
+    else:
+        raise InternalServerError("Unrecognized Dropbox access status: " + status)
+
+    return {
+        "plain_text": plain_text_greeting + plain_body,
+        "markdown": markdown_greeting + markdown_body,
+        "technician_note": technician_note,
+    }
+
+
+def assess_dropbox_access(apiary_account: Dict[str, Any], directory_id: str) -> str:
+    """
+    Determine Dropbox access status, syncing Grouper when the user is on a team but not loaded
+    """
+    teams_value = apiary_account.get("teams")
+    teams: List[Any] = teams_value if isinstance(teams_value, list) else []
+
+    grouper_groups = get_grouper_groups()
+    grouper_memberships: Dict[str, Any] = {}
+    gtad_member_of: Union[List[str], None] = None
+    gted_accounts: List[Dict[str, Any]] = []
+    username: Union[str, None] = None
+
+    if has_grouper_eligible_team(teams, grouper_groups):
+        uid = apiary_account.get("uid")
+        if not isinstance(uid, str) or uid == "":
+            raise InternalServerError("Apiary account is missing a uid")
+
+        username = uid
+        grouper_memberships = fetch_grouper_memberships(username)
+
+        if is_in_general_grouper_group(grouper_memberships):
+            gtad_member_of = get_gtad_member_of(username)
+
+            if is_in_general_gtad_group(gtad_member_of):
+                gted_accounts = search_gted(gtPersonDirectoryId=directory_id)
+
+    status = diagnose_dropbox_access(
+        teams,
+        grouper_groups,
+        grouper_memberships,
+        gtad_member_of,
+        gted_accounts,
+    )
+
+    if status == DROPBOX_STATUS_SYNC_GROUPER:
+        if username is None:
+            raise InternalServerError("Apiary account is missing a uid")
+
+        sync_apiary_access(username)
+
+    return status
+
+
 @shared_task
 def handle_slack_message_event(event: Dict[str, Any]) -> None:
     """
@@ -5033,6 +5284,36 @@ def handle_slack_message_event(event: Dict[str, Any]) -> None:
                         text=TextObject(
                             type="mrkdwn",
                             text="This appears to be a physical access request.",
+                        )
+                    )
+                )
+
+            elif "dropbox" in message_text:
+                dropbox_status = assess_dropbox_access(apiary_account, customer_directory_id)
+                dropbox_reply = dropbox_access_reply(
+                    dropbox_status, plain_text_greeting, markdown_greeting
+                )
+                slack.chat_postMessage(
+                    channel=event["channel"],
+                    thread_ts=event.get("ts", None),
+                    text=dropbox_reply["plain_text"],
+                    blocks=[
+                        SectionBlock(
+                            text=TextObject(
+                                type="mrkdwn",
+                                text=dropbox_reply["markdown"],
+                            )
+                        ),
+                        footer_block,
+                    ],
+                )
+                sent_customer_message = True
+
+                technician_context.append(
+                    SectionBlock(
+                        text=TextObject(
+                            type="mrkdwn",
+                            text=dropbox_reply["technician_note"],
                         )
                     )
                 )
