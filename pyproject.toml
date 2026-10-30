@@ -19,7 +19,8 @@ dependencies = [
     "celery[redis] (>=5.6.1,<6.0.0)",
     "google-api-python-client (>=2.190.0,<3.0.0)",
     "slack-sdk (>=3.40.1,<4.0.0)",
-    "squareup (>=44.1.0.20260520,<45.0.0.0)"
+    "squareup (>=44.1.0.20260520,<45.0.0.0)",
+    "python-dotenv (>=1.2.4,<2.0.0)",
 ]
 
 

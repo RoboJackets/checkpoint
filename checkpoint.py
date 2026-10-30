@@ -23,6 +23,8 @@ from authlib.integrations.requests_client import OAuth2Session
 
 from celery import Celery, Task, shared_task
 
+from dotenv import load_dotenv
+
 from flask import Flask, g, render_template, request, session
 from flask.helpers import get_debug_flag, redirect, url_for
 
@@ -75,6 +77,18 @@ USER_AGENT: Final[str] = (
     + "/"
     + environ.get("NOMAD_SHORT_ALLOC_ID", "local")
 )
+
+GENERAL_GROUPER_GTAD_DN: Final[str] = (
+    "CN=general_robojackets_services_gt,OU=grouper-prod,OU=Gted,OU=GT_Resources,DC=ad,DC=gatech,DC=edu"
+)
+DROPBOX_ELIGIBLE_ENTITLEMENT: Final[str] = "/gt/central/services/dropbox/dropbox-eligible/enabled"
+DROPBOX_PROVISIONED_ENTITLEMENT: Final[str] = "/gt/central/services/dropbox/dropbox-access/enabled"
+DROPBOX_STATUS_JOIN_TEAM: Final[str] = "join_team"
+DROPBOX_STATUS_SYNC_GROUPER: Final[str] = "sync_grouper"
+DROPBOX_STATUS_PROVISIONING: Final[str] = "provisioning"
+DROPBOX_STATUS_NOT_ELIGIBLE: Final[str] = "not_eligible"
+DROPBOX_STATUS_REQUEST_ACCOUNT: Final[str] = "request_account"
+DROPBOX_STATUS_PROVISIONED: Final[str] = "provisioned"
 
 # Square error code descriptions from API documentation, to show to technicians
 SQUARE_ERROR_CODE_DESCRIPTIONS: Final[Dict[str, str]] = {
@@ -252,6 +266,8 @@ SQUARE_ERROR_CODE_CUSTOMER_MESSAGES: Final[Dict[str, str]] = {
     "CARDHOLDER_INSUFFICIENT_PERMISSIONS": "This payment was declined by your card issuer due to restrictions on where this card can be used. Contact your card issuer for help.",
 }
 
+load_dotenv(override=True)
+
 
 def traces_sampler(sampling_context: Dict[str, Dict[str, str]]) -> bool:
     """
@@ -308,7 +324,7 @@ app.config.from_prefixed_env()
 
 celery_app = init_celery(app)
 
-oauth = OAuth(app)  # type: ignore
+oauth = OAuth(app)
 oauth.register(  # type: ignore
     name="keycloak",
     server_metadata_url=app.config["KEYCLOAK_METADATA_URL"],
@@ -606,15 +622,14 @@ def search_whitepages(**kwargs: str) -> List[Dict[str, Dict[str, List[str]]]]:
     return records
 
 
-@cache.memoize()
-def search_gtad(uid: str) -> Union[Dict[str, List[str]], None]:
+def connect_gtad() -> Connection:
     """
-    Look up an account in GTAD by uid and return its title/department attributes
+    Open an authenticated connection to GTAD
     """
     gtad_port = app.config.get("GTAD_PORT")
 
     with sentry_sdk.start_span(op="gtad.connect"):
-        ldap = Connection(
+        return Connection(
             Server(
                 app.config.get("GTAD_HOST", "campusad.ad.gatech.edu"),
                 port=int(gtad_port) if gtad_port is not None else None,
@@ -627,21 +642,52 @@ def search_gtad(uid: str) -> Union[Dict[str, List[str]], None]:
             receive_timeout=1,
         )
 
+
+def search_gtad_attributes(uid: str, attributes: List[str]) -> Union[Dict[str, List[str]], None]:
+    """
+    Look up an account in GTAD by uid and return the requested attributes
+    """
+    ldap = connect_gtad()
+
     with sentry_sdk.start_span(op="gtad.search"):
         result = ldap.search(
             search_base="dc=ad,dc=gatech,dc=edu",
             search_filter="(uid=" + uid + ")",
-            attributes=["title", "department"],
+            attributes=attributes,
         )
 
         if result is True:
             for entry in ldap.entries:
-                attributes: Dict[str, List[str]] = loads(entry.entry_to_json()).get(
+                entry_attributes: Dict[str, List[str]] = loads(entry.entry_to_json()).get(
                     "attributes", {}
                 )
-                return attributes
+                return entry_attributes
 
     return None
+
+
+@cache.memoize()
+def search_gtad(uid: str) -> Union[Dict[str, List[str]], None]:
+    """
+    Look up an account in GTAD by uid and return its title/department attributes
+    """
+    return search_gtad_attributes(uid, ["title", "department"])
+
+
+def get_gtad_member_of(uid: str) -> Union[List[str], None]:
+    """
+    Return the GTAD memberOf values for a uid, or None when the account does not exist
+    """
+    attributes = search_gtad_attributes(uid, ["memberOf"])
+
+    if attributes is None:
+        return None
+
+    member_of = attributes.get("memberOf")
+    if not isinstance(member_of, list):
+        return []
+
+    return [value for value in member_of if isinstance(value, str)]
 
 
 @cache.cached(key_prefix="realms")
@@ -726,7 +772,7 @@ def get_actor(**kwargs: str) -> Dict[str, Union[str, None]]:
                             "",
                         )
                     ),
-                    params={
+                    params={  # type: ignore
                         "username": kwargs["impersonator"],
                         "exact": True,
                     },
@@ -744,9 +790,7 @@ def get_actor(**kwargs: str) -> Dict[str, Union[str, None]]:
                         + kwargs["impersonator_realm"]
                     )
 
-                return get_actor(  # type: ignore
-                    realmId=realm["id"], userId=keycloak_accounts[0]["id"]
-                )
+                return get_actor(realmId=realm["id"], userId=keycloak_accounts[0]["id"])
 
     if "realmId" in kwargs and "userId" in kwargs:
         for realm in get_realms():
@@ -776,7 +820,7 @@ def get_actor(**kwargs: str) -> Dict[str, Union[str, None]]:
                     )
                     is not None
                 ):
-                    return get_actor(uid=keycloak_account["username"])  # type: ignore
+                    return get_actor(uid=keycloak_account["username"])
 
                 actor_display_name = keycloak_account["username"]
 
@@ -1058,9 +1102,7 @@ def search_apiary(  # pylint: disable=too-many-arguments
         if fallback_gtid is None:
             return None
 
-        return search_apiary(  # type: ignore[no-any-return]
-            gtid=fallback_gtid, include=include, force_refresh=force_refresh
-        )
+        return search_apiary(gtid=fallback_gtid, include=include, force_refresh=force_refresh)
 
     apiary_response.raise_for_status()
 
@@ -1933,7 +1975,7 @@ def search() -> (
     if session["has_access"] is not True:
         raise Forbidden("Access denied")
 
-    query = request.json["query"].strip()  # type: ignore
+    query = request.json["query"].strip()
 
     try:  # pylint: disable=too-many-nested-blocks
         # check if the query is formatted like an email address
@@ -2325,7 +2367,7 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
         for event in keycloak_response.json():
             if event["type"] == "IMPERSONATE":
                 description = (
-                    "impersonated "
+                    "impersonated "  # type: ignore
                     + get_actor(gtPersonDirectoryId=directory_id)["actorDisplayName"]
                     + "'s Keycloak account"
                 )
@@ -2399,7 +2441,7 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
         for event in keycloak_response.json():
             if event["operationType"] == "UPDATE":
                 description = (
-                    "updated "
+                    "updated "  # type: ignore
                     + get_actor(gtPersonDirectoryId=directory_id)["actorDisplayName"]
                     + "'s Keycloak account using "
                     + get_client_display_name(**event["authDetails"])
@@ -2490,7 +2532,7 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
                         attendance["created_at"]
                     ),
                     "eventDescription": (
-                        "recorded attendance for "
+                        "recorded attendance for "  # type: ignore
                         + get_actor(gtPersonDirectoryId=directory_id)["actorDisplayName"]
                         + " at "
                         + attendance["attendable"]["name"]
@@ -2926,7 +2968,7 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
                             action["created_at"]
                         ),
                         "eventDescription": (
-                            "distributed shirt to "
+                            "distributed shirt to "  # type: ignore
                             + get_actor(apiary_user_id=action["target"]["user_id"])[
                                 "actorDisplayName"
                             ]
@@ -2953,7 +2995,7 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
                             action["created_at"]
                         ),
                         "eventDescription": (
-                            "distributed polo to "
+                            "distributed polo to "  # type: ignore
                             + get_actor(apiary_user_id=action["target"]["user_id"])[
                                 "actorDisplayName"
                             ]
@@ -2980,7 +3022,7 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
 
                 if user_id_match is not None:
                     to_member_string = (
-                        " to "
+                        " to "  # type: ignore
                         + get_actor(apiary_user_id=user_id_match.group("user_id"))[
                             "actorDisplayName"
                         ]
@@ -3018,7 +3060,7 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
 
                 if user_id_match is not None:
                     to_member_string = (
-                        " for "
+                        " for "  # type: ignore
                         + get_actor(apiary_user_id=user_id_match.group("user_id"))[
                             "actorDisplayName"
                         ]
@@ -3205,7 +3247,7 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
                             action["created_at"]
                         ),
                         "eventDescription": (
-                            "voided a DocuSign envelope for "
+                            "voided a DocuSign envelope for "  # type: ignore
                             + get_actor(apiary_user_id=action["actionable"]["signed_by"])[
                                 "actorDisplayName"
                             ]
@@ -3902,7 +3944,7 @@ def get_relationship_description(relationship_type: str, action: Dict[str, Any])
         return "fiscal year " + action[relationship_type]["ending_year"]  # type: ignore
     if action[relationship_type + "_type"] == "dues-transaction":
         return (  # type: ignore
-            get_actor(apiary_user_id=action[relationship_type]["user_id"])["actorDisplayName"]
+            get_actor(apiary_user_id=action[relationship_type]["user_id"])["actorDisplayName"]  # type: ignore
             + "'s dues transaction for "
             + action[relationship_type]["package"]["name"]
         )
@@ -3926,13 +3968,13 @@ def get_relationship_description(relationship_type: str, action: Dict[str, Any])
         action[relationship_type + "_type"] == "App\\Models\\Signature"
         or action[relationship_type + "_type"] == "signature"
     ):
-        return (  # type: ignore
-            "membership agreement for "
+        return (
+            "membership agreement for "  # type: ignore
             + get_actor(apiary_user_id=action[relationship_type]["user_id"])["actorDisplayName"]
         )
     if action[relationship_type + "_type"] == "travel-assignment":
         return (  # type: ignore
-            get_actor(apiary_user_id=action[relationship_type]["user_id"])["actorDisplayName"]
+            get_actor(apiary_user_id=action[relationship_type]["user_id"])["actorDisplayName"]  # type: ignore
             + "'s trip assignment for "
             + action[relationship_type]["travel"]["name"]
         )
@@ -4195,10 +4237,17 @@ def get_grouper_memberships(directory_id: str) -> Dict[str, Any]:
 
         primary_username = gted_account["gtPrimaryGTAccountUsername"]
 
+    return fetch_grouper_memberships(primary_username)
+
+
+def fetch_grouper_memberships(username: str) -> Dict[str, Any]:
+    """
+    Get Grouper group memberships for a username
+    """
     grouper_response = get(
         url=app.config["GROUPER_BASE_URL"]
         + "/grouper-ws/servicesRest/v4_0_000/subjects/"
-        + primary_username
+        + username
         + "/memberships",
         auth=(app.config["GROUPER_USERNAME"], app.config["GROUPER_PASSWORD"]),
         headers={
@@ -4650,6 +4699,201 @@ def handle_slack_search_request(payload: Dict[str, Any]) -> None:
     )
 
 
+def has_grouper_eligible_team(teams: List[Any], grouper_groups: List[str]) -> bool:
+    """
+    Return whether any Apiary team name matches a Grouper group extension
+    """
+    group_names = {group_name.lower() for group_name in grouper_groups}
+
+    for team in teams:
+        if not isinstance(team, dict):
+            continue
+
+        name = team.get("name")
+        if isinstance(name, str) and name.lower() in group_names:
+            return True
+
+    return False
+
+
+def is_in_general_grouper_group(memberships: Dict[str, Any]) -> bool:
+    """
+    Return whether Grouper memberships include the general group
+    """
+    groups = memberships.get("wsGroups") or []
+
+    if not isinstance(groups, list):
+        return False
+
+    for group in groups:
+        if isinstance(group, dict) and group.get("extension") == "general":
+            return True
+
+    return False
+
+
+def is_in_general_gtad_group(member_of: Union[List[str], None]) -> bool:
+    """
+    Return whether a GTAD memberOf list includes the general Grouper group
+    """
+    if member_of is None:
+        return False
+
+    return GENERAL_GROUPER_GTAD_DN in member_of
+
+
+def gted_accounts_have_entitlement(accounts: List[Dict[str, Any]], entitlement: str) -> bool:
+    """
+    Return whether any GTED account has the given entitlement
+    """
+    for account in accounts:
+        entitlements = account.get("gtAccountEntitlement")
+        if isinstance(entitlements, list) and entitlement in entitlements:
+            return True
+
+    return False
+
+
+def diagnose_dropbox_access(
+    teams: List[Any],
+    grouper_groups: List[str],
+    grouper_memberships: Dict[str, Any],
+    gtad_member_of: Union[List[str], None],
+    gted_accounts: List[Dict[str, Any]],
+) -> str:
+    """
+    Decide the next Dropbox access step from Apiary, Grouper, GTAD, and GTED state
+    """
+    if not has_grouper_eligible_team(teams, grouper_groups):
+        return DROPBOX_STATUS_JOIN_TEAM
+
+    if not is_in_general_grouper_group(grouper_memberships):
+        return DROPBOX_STATUS_SYNC_GROUPER
+
+    if not is_in_general_gtad_group(gtad_member_of):
+        return DROPBOX_STATUS_PROVISIONING
+
+    if not gted_accounts_have_entitlement(gted_accounts, DROPBOX_ELIGIBLE_ENTITLEMENT):
+        return DROPBOX_STATUS_NOT_ELIGIBLE
+
+    if not gted_accounts_have_entitlement(gted_accounts, DROPBOX_PROVISIONED_ENTITLEMENT):
+        return DROPBOX_STATUS_REQUEST_ACCOUNT
+
+    return DROPBOX_STATUS_PROVISIONED
+
+
+def sync_apiary_access(username: str) -> None:
+    """
+    Ask Apiary to sync a user's access into Grouper and downstream systems
+    """
+    response = apiary.post(
+        url=app.config["APIARY_BASE_URL"] + "/api/v1/users/" + username + "/sync-access",
+        timeout=(5, 60),
+    )
+    response.raise_for_status()
+
+
+def dropbox_access_reply(
+    status: str, plain_text_greeting: str, markdown_greeting: str
+) -> Dict[str, Union[str, None]]:
+    """
+    Build the customer and technician text for a Dropbox access diagnosis
+    """
+    if status == DROPBOX_STATUS_JOIN_TEAM:
+        plain_body = " Join a team at https://my.robojackets.org/teams to access Dropbox."
+        markdown_body = " Join a team at <https://my.robojackets.org/teams|my.robojackets.org/teams> to access Dropbox."
+        technician_note = "User is not a member of any Apiary team with a Grouper group."
+    elif status == DROPBOX_STATUS_SYNC_GROUPER:
+        plain_body = None
+        markdown_body = None
+        technician_note = (
+            "User is on a Grouper-eligible team but is not in the general Grouper group."
+            " Checkpoint automatically triggered access sync, please verify status in Checkpoint UI and respond to end user."
+        )
+    elif status == DROPBOX_STATUS_PROVISIONING:
+        plain_body = " We've submitted a request for you to access our Dropbox folders, and it's currently processing. Check back in 24 hours."
+        markdown_body = plain_body
+        technician_note = (
+            "User is in the general Grouper group but is not in that group in GTAD."
+            " Grouper sync to GTAD can take up to 24 hours."
+        )
+    elif status == DROPBOX_STATUS_NOT_ELIGIBLE:
+        plain_body = (
+            " You're not eligible for a Georgia Tech Dropbox account per Georgia Tech policy."
+        )
+        markdown_body = plain_body
+        technician_note = "User is not eligible for a Georgia Tech Dropbox account."
+    elif status == DROPBOX_STATUS_REQUEST_ACCOUNT:
+        plain_body = (
+            " Follow the instructions at https://dropbox.gatech.edu/"
+            " to request a Georgia Tech Dropbox account."
+        )
+        markdown_body = (
+            " Follow the instructions at <https://dropbox.gatech.edu/|dropbox.gatech.edu>"
+            " to request a Georgia Tech Dropbox account."
+        )
+        technician_note = (
+            "User is eligible for a Georgia Tech Dropbox account"
+            " but does not have the provisioned entitlement."
+        )
+    elif status == DROPBOX_STATUS_PROVISIONED:
+        plain_body = None
+        markdown_body = None
+        technician_note = "User has a provisioned Georgia Tech Dropbox account."
+    else:
+        raise InternalServerError("Unrecognized Dropbox access status: " + status)
+
+    return {
+        "plain_text": None if plain_body is None else plain_text_greeting + plain_body,
+        "markdown": None if markdown_body is None else markdown_greeting + markdown_body,
+        "technician_note": technician_note,
+    }
+
+
+def assess_dropbox_access(apiary_account: Dict[str, Any], directory_id: str) -> str:
+    """
+    Determine Dropbox access status, syncing Grouper when the user is on a team but not loaded
+    """
+    teams_value = apiary_account.get("teams")
+    teams: List[Any] = teams_value if isinstance(teams_value, list) else []
+
+    grouper_groups = get_grouper_groups()
+    grouper_memberships: Dict[str, Any] = {}
+    gtad_member_of: Union[List[str], None] = None
+    gted_accounts: List[Dict[str, Any]] = []
+    username: Union[str, None] = None
+
+    if has_grouper_eligible_team(teams, grouper_groups):
+        uid = apiary_account.get("uid")
+        if not isinstance(uid, str) or uid == "":
+            raise InternalServerError("Apiary account is missing a uid")
+
+        username = uid
+        grouper_memberships = fetch_grouper_memberships(username)
+
+        if is_in_general_grouper_group(grouper_memberships):
+            gtad_member_of = get_gtad_member_of(username)
+
+            if is_in_general_gtad_group(gtad_member_of):
+                gted_accounts = search_gted(gtPersonDirectoryId=directory_id)
+
+    status = diagnose_dropbox_access(
+        teams,
+        grouper_groups,
+        grouper_memberships,
+        gtad_member_of,
+        gted_accounts,
+    )
+
+    if status == DROPBOX_STATUS_SYNC_GROUPER:
+        if username is None:
+            raise InternalServerError("Apiary account is missing a uid")
+
+        sync_apiary_access(username)
+
+    return status
+
+
 @shared_task
 def handle_slack_message_event(event: Dict[str, Any]) -> None:
     """
@@ -5033,6 +5277,40 @@ def handle_slack_message_event(event: Dict[str, Any]) -> None:
                         text=TextObject(
                             type="mrkdwn",
                             text="This appears to be a physical access request.",
+                        )
+                    )
+                )
+
+            elif "dropbox" in message_text or "drop box" in message_text:
+                dropbox_status = assess_dropbox_access(apiary_account, customer_directory_id)
+                dropbox_reply = dropbox_access_reply(
+                    dropbox_status, plain_text_greeting, markdown_greeting
+                )
+                if (
+                    dropbox_reply["plain_text"] is not None
+                    and dropbox_reply["markdown"] is not None
+                ):
+                    slack.chat_postMessage(
+                        channel=event["channel"],
+                        thread_ts=event.get("ts", None),
+                        text=dropbox_reply["plain_text"],
+                        blocks=[
+                            SectionBlock(
+                                text=TextObject(
+                                    type="mrkdwn",
+                                    text=dropbox_reply["markdown"],
+                                )
+                            ),
+                            footer_block,
+                        ],
+                    )
+                    sent_customer_message = True
+
+                technician_context.append(
+                    SectionBlock(
+                        text=TextObject(
+                            type="mrkdwn",
+                            text=dropbox_reply["technician_note"] or "",
                         )
                     )
                 )
