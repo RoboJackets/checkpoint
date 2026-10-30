@@ -16,3 +16,5 @@ poetry run pylint checkpoint.py
 poetry run mypy --strict --scripts-are-modules checkpoint.py
 
 Data is stored in a SQLite database that is reset for each deployment. The database is called "Crosswalk" because it is solely for storing relationships between different identifiers.
+
+Do not write unit tests.
