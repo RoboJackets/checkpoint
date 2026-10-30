@@ -42,7 +42,7 @@ from ldap3 import (
 )
 from ldap3.operation.search import search_operation
 
-from requests import get, post
+from requests import RequestException, get, post
 
 import sentry_sdk
 from sentry_sdk import set_user
@@ -89,6 +89,8 @@ DROPBOX_STATUS_PROVISIONING: Final[str] = "provisioning"
 DROPBOX_STATUS_NOT_ELIGIBLE: Final[str] = "not_eligible"
 DROPBOX_STATUS_REQUEST_ACCOUNT: Final[str] = "request_account"
 DROPBOX_STATUS_PROVISIONED: Final[str] = "provisioned"
+SYNC_ACCESS_ACTION_ID: Final[str] = "sync_access"
+SYNC_ACCESS_STATUS_BLOCK_ID: Final[str] = "sync_access_status"
 
 # Square error code descriptions from API documentation, to show to technicians
 SQUARE_ERROR_CODE_DESCRIPTIONS: Final[Dict[str, str]] = {
@@ -1560,6 +1562,13 @@ def format_search_result_blocks(
                 },
                 *apiary_button,
                 *overflow_menu,
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Sync Access"},
+                    "style": "danger",
+                    "action_id": SYNC_ACCESS_ACTION_ID,
+                    "value": result_context["primaryUsername"],
+                },
             ],
         },
     ]
@@ -5331,6 +5340,213 @@ def handle_slack_message_event(event: Dict[str, Any]) -> None:
             continue
 
 
+def sync_access_username(payload: Dict[str, Any]) -> Union[str, None]:
+    """
+    Return the username from a Sync Access button click, if that action is present
+    """
+    actions = payload.get("actions")
+    if not isinstance(actions, list):
+        return None
+
+    for action in actions:
+        if not isinstance(action, dict) or action.get("action_id") != SYNC_ACCESS_ACTION_ID:
+            continue
+
+        username = action.get("value")
+        if isinstance(username, str) and username != "":
+            return username
+
+    return None
+
+
+def blocks_with_sync_access_status(blocks: List[Any], status_text: str) -> List[Dict[str, Any]]:
+    """
+    Append or replace the access sync status on a set of Slack blocks
+    """
+    updated_blocks: List[Dict[str, Any]] = []
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        if block.get("block_id") == SYNC_ACCESS_STATUS_BLOCK_ID:
+            continue
+        updated_blocks.append(block)
+
+    updated_blocks.append(
+        {
+            "type": "context",
+            "block_id": SYNC_ACCESS_STATUS_BLOCK_ID,
+            "elements": [{"type": "mrkdwn", "text": status_text}],
+        }
+    )
+    return updated_blocks
+
+
+def sync_access_failure_text(username: str, error: RequestException) -> str:
+    """
+    Choose the Slack status text for a failed access sync
+    """
+    fallback = "Could not sync access for `" + username + "`."
+    response = error.response
+    if response is None:
+        return fallback
+
+    try:
+        body = response.json()
+    except (ValueError, RequestException):
+        return fallback
+
+    if not isinstance(body, dict):
+        return fallback
+
+    message = body.get("message")
+    if not isinstance(message, str) or message == "":
+        return fallback
+
+    return message
+
+
+def publish_modal_sync_access_status(view: Dict[str, Any], status_text: str) -> None:
+    """
+    Show access sync progress in an open Slack modal
+    """
+    view_id = view.get("id")
+    blocks = view.get("blocks")
+    title = view.get("title")
+    if not isinstance(view_id, str) or not isinstance(blocks, list) or not isinstance(title, dict):
+        return
+
+    slack.views_update(
+        view_id=view_id,
+        view={
+            "type": "modal",
+            "title": title,
+            "blocks": blocks_with_sync_access_status(blocks, status_text),
+        },
+    )
+
+
+def slack_thread_ts(payload: Dict[str, Any]) -> Union[str, None]:
+    """
+    Return the thread timestamp for a Slack interaction, when the message is in a thread
+    """
+    container = payload.get("container")
+    if isinstance(container, dict):
+        thread_ts = container.get("thread_ts")
+        if isinstance(thread_ts, str) and thread_ts != "":
+            return thread_ts
+
+    message = payload.get("message")
+    if isinstance(message, dict):
+        thread_ts = message.get("thread_ts")
+        if isinstance(thread_ts, str) and thread_ts != "":
+            return thread_ts
+
+    return None
+
+
+def publish_message_sync_access_status(payload: Dict[str, Any], status_text: str) -> None:
+    """
+    Show access sync progress on the Slack message that contained the button
+    """
+    response_url = payload.get("response_url")
+    message = payload.get("message")
+    if isinstance(response_url, str) and isinstance(message, dict):
+        blocks = message.get("blocks")
+        if isinstance(blocks, list):
+            text = message.get("text")
+            fallback = text if isinstance(text, str) and text != "" else status_text
+            post(
+                response_url,
+                json={
+                    "replace_original": True,
+                    "response_type": "ephemeral",
+                    "text": fallback,
+                    "blocks": blocks_with_sync_access_status(blocks, status_text),
+                },
+                timeout=(5, 5),
+            ).raise_for_status()
+            return
+
+    channel = payload.get("channel")
+    user = payload.get("user")
+    if not isinstance(channel, dict) or not isinstance(user, dict):
+        return
+
+    channel_id = channel.get("id")
+    user_id = user.get("id")
+    if not isinstance(channel_id, str) or not isinstance(user_id, str):
+        return
+
+    thread_ts = slack_thread_ts(payload)
+    if thread_ts is None:
+        slack.chat_postEphemeral(channel=channel_id, user=user_id, text=status_text)
+        return
+
+    slack.chat_postEphemeral(
+        channel=channel_id, user=user_id, text=status_text, thread_ts=thread_ts
+    )
+
+
+def publish_sync_access_status(payload: Dict[str, Any], status_text: str) -> None:
+    """
+    Show access sync progress on the Slack modal or ephemeral message
+    """
+    try:
+        view = payload.get("view")
+        if isinstance(view, dict) and view.get("type") == "modal":
+            publish_modal_sync_access_status(view, status_text)
+            return
+
+        publish_message_sync_access_status(payload, status_text)
+    except (SlackApiError, RequestException):
+        app.logger.exception("Failed to publish Slack access sync status")
+
+
+@shared_task
+def handle_slack_sync_access_request(payload: Dict[str, Any]) -> None:
+    """
+    Sync a user's access when the Slack Sync Access button is used
+    """
+    username = sync_access_username(payload)
+    if username is None:
+        return
+
+    user = payload.get("user")
+    if not isinstance(user, dict):
+        return
+
+    slack_user_id = user.get("id")
+    if not isinstance(slack_user_id, str) or slack_user_id == "":
+        return
+
+    if slack_user_has_access_to_checkpoint(slack_user_id) is False:
+        publish_sync_access_status(payload, "You do not have access to Checkpoint.")
+        return
+
+    if fullmatch(GEORGIA_TECH_USERNAME_REGEX, username) is None:
+        app.logger.warning("Rejected Slack access sync for username %s", username)
+        publish_sync_access_status(payload, "Could not sync access.")
+        return
+
+    lock_key = "sync_access_" + username
+    if not cache.add(lock_key, True, timeout=120):
+        publish_sync_access_status(
+            payload, "Access sync is already in progress for `" + username + "`."
+        )
+        return
+
+    try:
+        publish_sync_access_status(payload, "Syncing access for `" + username + "`...")
+        try:
+            sync_apiary_access(username)
+        except RequestException as error:
+            publish_sync_access_status(payload, sync_access_failure_text(username, error))
+            raise
+        publish_sync_access_status(payload, "Synced access for `" + username + "`.")
+    finally:
+        cache.delete(lock_key)
+
+
 @app.post("/slack/interaction")
 def handle_slack_interaction() -> Dict[str, str]:
     """
@@ -5344,6 +5560,8 @@ def handle_slack_interaction() -> Dict[str, str]:
     payload = loads(request.form.get("payload"))  # type: ignore
 
     if payload.get("type") == "block_actions":
+        if isinstance(payload, dict) and sync_access_username(payload) is not None:
+            handle_slack_sync_access_request.delay(payload)
         return {"status": "ok"}
 
     if payload.get("type") != "message_action":
