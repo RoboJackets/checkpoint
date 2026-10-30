@@ -23,6 +23,8 @@ from authlib.integrations.requests_client import OAuth2Session
 
 from celery import Celery, Task, shared_task
 
+from dotenv import load_dotenv
+
 from flask import Flask, g, render_template, request, session
 from flask.helpers import get_debug_flag, redirect, url_for
 
@@ -263,6 +265,8 @@ SQUARE_ERROR_CODE_CUSTOMER_MESSAGES: Final[Dict[str, str]] = {
     "VOICE_FAILURE": VERIFICATION_CUSTOMER_MESSAGE,
     "CARDHOLDER_INSUFFICIENT_PERMISSIONS": "This payment was declined by your card issuer due to restrictions on where this card can be used. Contact your card issuer for help.",
 }
+
+load_dotenv(override=True)
 
 
 def traces_sampler(sampling_context: Dict[str, Dict[str, str]]) -> bool:
@@ -4801,33 +4805,28 @@ def dropbox_access_reply(
     """
     if status == DROPBOX_STATUS_JOIN_TEAM:
         plain_body = (
-            " Dropbox access requires you to be on a RoboJackets team."
-            " Join a team at https://my.robojackets.org/teams."
+            " Join a team at https://my.robojackets.org/teams to access Dropbox."
         )
         markdown_body = (
-            " Dropbox access requires you to be on a RoboJackets team."
-            " Join a team at <https://my.robojackets.org/teams|my.robojackets.org/teams>."
+            " Join a team at <https://my.robojackets.org/teams|my.robojackets.org/teams> to access Dropbox."
         )
         technician_note = "User is not a member of any Apiary team with a Grouper group."
     elif status == DROPBOX_STATUS_SYNC_GROUPER:
-        plain_body = (
-            " You're on a team, but your access hasn't synced to Grouper yet."
-            " I started a sync. Try again in a few minutes."
-        )
-        markdown_body = plain_body
+        plain_body = None
+        markdown_body = None
         technician_note = (
             "User is on a Grouper-eligible team but is not in the general Grouper group."
-            " Triggered Apiary sync-access."
+            " Checkpoint automatically triggered access sync, please verify status in Checkpoint UI and respond to end user."
         )
     elif status == DROPBOX_STATUS_PROVISIONING:
-        plain_body = " Your access is still provisioning and can take up to 24 hours."
+        plain_body = " We've submitted a request for you to access our Dropbox folders, and it's currently processing. Check back in 24 hours."
         markdown_body = plain_body
         technician_note = (
             "User is in the general Grouper group but is not in that group in GTAD."
-            " Provisioning can take up to 24 hours."
+            " Grouper sync to GTAD can take up to 24 hours."
         )
     elif status == DROPBOX_STATUS_NOT_ELIGIBLE:
-        plain_body = " You aren't eligible for a Georgia Tech Dropbox account."
+        plain_body = " You're not eligible for a Georgia Tech Dropbox account per Georgia Tech policy."
         markdown_body = plain_body
         technician_note = "User is not eligible for a Georgia Tech Dropbox account."
     elif status == DROPBOX_STATUS_REQUEST_ACCOUNT:
@@ -4844,15 +4843,15 @@ def dropbox_access_reply(
             " but does not have the provisioned entitlement."
         )
     elif status == DROPBOX_STATUS_PROVISIONED:
-        plain_body = " You already have a Georgia Tech Dropbox account."
-        markdown_body = plain_body
+        plain_body = None
+        markdown_body = None
         technician_note = "User has a provisioned Georgia Tech Dropbox account."
     else:
         raise InternalServerError("Unrecognized Dropbox access status: " + status)
 
     return {
-        "plain_text": plain_text_greeting + plain_body,
-        "markdown": markdown_greeting + markdown_body,
+        "plain_text": None if plain_body is None else plain_text_greeting + plain_body,
+        "markdown": None if markdown_body is None else markdown_greeting + markdown_body,
         "technician_note": technician_note,
     }
 
@@ -5288,26 +5287,27 @@ def handle_slack_message_event(event: Dict[str, Any]) -> None:
                     )
                 )
 
-            elif "dropbox" in message_text:
+            elif "dropbox" in message_text or "drop box" in message_text:
                 dropbox_status = assess_dropbox_access(apiary_account, customer_directory_id)
                 dropbox_reply = dropbox_access_reply(
                     dropbox_status, plain_text_greeting, markdown_greeting
                 )
-                slack.chat_postMessage(
-                    channel=event["channel"],
-                    thread_ts=event.get("ts", None),
-                    text=dropbox_reply["plain_text"],
-                    blocks=[
-                        SectionBlock(
-                            text=TextObject(
-                                type="mrkdwn",
-                                text=dropbox_reply["markdown"],
-                            )
-                        ),
-                        footer_block,
-                    ],
-                )
-                sent_customer_message = True
+                if dropbox_reply["plain_text"] is not None:
+                    slack.chat_postMessage(
+                        channel=event["channel"],
+                        thread_ts=event.get("ts", None),
+                        text=dropbox_reply["plain_text"],
+                        blocks=[
+                            SectionBlock(
+                                text=TextObject(
+                                    type="mrkdwn",
+                                    text=dropbox_reply["markdown"],
+                                )
+                            ),
+                            footer_block,
+                        ],
+                    )
+                    sent_customer_message = True
 
                 technician_context.append(
                     SectionBlock(
