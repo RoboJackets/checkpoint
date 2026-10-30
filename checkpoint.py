@@ -5290,7 +5290,7 @@ def handle_slack_message_event(event: Dict[str, Any]) -> None:
                 dropbox_reply = dropbox_access_reply(
                     dropbox_status, plain_text_greeting, markdown_greeting
                 )
-                if dropbox_reply["plain_text"] is not None:
+                if dropbox_reply["plain_text"] is not None and dropbox_reply["markdown"] is not None:
                     slack.chat_postMessage(
                         channel=event["channel"],
                         thread_ts=event.get("ts", None),
@@ -5311,7 +5311,7 @@ def handle_slack_message_event(event: Dict[str, Any]) -> None:
                     SectionBlock(
                         text=TextObject(
                             type="mrkdwn",
-                            text=dropbox_reply["technician_note"],
+                            text=dropbox_reply["technician_note"] or "",
                         )
                     )
                 )
