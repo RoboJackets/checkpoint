@@ -4799,7 +4799,7 @@ def sync_apiary_access(username: str) -> None:
 
 def dropbox_access_reply(
     status: str, plain_text_greeting: str, markdown_greeting: str
-) -> Dict[str, str]:
+) -> Dict[str, Union[str, None]]:
     """
     Build the customer and technician text for a Dropbox access diagnosis
     """
