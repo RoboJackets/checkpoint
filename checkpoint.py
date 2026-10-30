@@ -324,7 +324,7 @@ app.config.from_prefixed_env()
 
 celery_app = init_celery(app)
 
-oauth = OAuth(app)  # type: ignore
+oauth = OAuth(app)
 oauth.register(  # type: ignore
     name="keycloak",
     server_metadata_url=app.config["KEYCLOAK_METADATA_URL"],
@@ -772,7 +772,7 @@ def get_actor(**kwargs: str) -> Dict[str, Union[str, None]]:
                             "",
                         )
                     ),
-                    params={
+                    params={  # type: ignore
                         "username": kwargs["impersonator"],
                         "exact": True,
                     },
@@ -790,9 +790,7 @@ def get_actor(**kwargs: str) -> Dict[str, Union[str, None]]:
                         + kwargs["impersonator_realm"]
                     )
 
-                return get_actor(  # type: ignore
-                    realmId=realm["id"], userId=keycloak_accounts[0]["id"]
-                )
+                return get_actor(realmId=realm["id"], userId=keycloak_accounts[0]["id"])
 
     if "realmId" in kwargs and "userId" in kwargs:
         for realm in get_realms():
@@ -822,7 +820,7 @@ def get_actor(**kwargs: str) -> Dict[str, Union[str, None]]:
                     )
                     is not None
                 ):
-                    return get_actor(uid=keycloak_account["username"])  # type: ignore
+                    return get_actor(uid=keycloak_account["username"])
 
                 actor_display_name = keycloak_account["username"]
 
@@ -1104,9 +1102,7 @@ def search_apiary(  # pylint: disable=too-many-arguments
         if fallback_gtid is None:
             return None
 
-        return search_apiary(  # type: ignore[no-any-return]
-            gtid=fallback_gtid, include=include, force_refresh=force_refresh
-        )
+        return search_apiary(gtid=fallback_gtid, include=include, force_refresh=force_refresh)
 
     apiary_response.raise_for_status()
 
@@ -1979,7 +1975,7 @@ def search() -> (
     if session["has_access"] is not True:
         raise Forbidden("Access denied")
 
-    query = request.json["query"].strip()  # type: ignore
+    query = request.json["query"].strip()
 
     try:  # pylint: disable=too-many-nested-blocks
         # check if the query is formatted like an email address
@@ -2371,7 +2367,7 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
         for event in keycloak_response.json():
             if event["type"] == "IMPERSONATE":
                 description = (
-                    "impersonated "
+                    "impersonated "  # type: ignore
                     + get_actor(gtPersonDirectoryId=directory_id)["actorDisplayName"]
                     + "'s Keycloak account"
                 )
@@ -2445,7 +2441,7 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
         for event in keycloak_response.json():
             if event["operationType"] == "UPDATE":
                 description = (
-                    "updated "
+                    "updated "  # type: ignore
                     + get_actor(gtPersonDirectoryId=directory_id)["actorDisplayName"]
                     + "'s Keycloak account using "
                     + get_client_display_name(**event["authDetails"])
@@ -2536,7 +2532,7 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
                         attendance["created_at"]
                     ),
                     "eventDescription": (
-                        "recorded attendance for "
+                        "recorded attendance for "  # type: ignore
                         + get_actor(gtPersonDirectoryId=directory_id)["actorDisplayName"]
                         + " at "
                         + attendance["attendable"]["name"]
@@ -2972,7 +2968,7 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
                             action["created_at"]
                         ),
                         "eventDescription": (
-                            "distributed shirt to "
+                            "distributed shirt to "  # type: ignore
                             + get_actor(apiary_user_id=action["target"]["user_id"])[
                                 "actorDisplayName"
                             ]
@@ -2999,7 +2995,7 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
                             action["created_at"]
                         ),
                         "eventDescription": (
-                            "distributed polo to "
+                            "distributed polo to "  # type: ignore
                             + get_actor(apiary_user_id=action["target"]["user_id"])[
                                 "actorDisplayName"
                             ]
@@ -3026,7 +3022,7 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
 
                 if user_id_match is not None:
                     to_member_string = (
-                        " to "
+                        " to "  # type: ignore
                         + get_actor(apiary_user_id=user_id_match.group("user_id"))[
                             "actorDisplayName"
                         ]
@@ -3064,7 +3060,7 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
 
                 if user_id_match is not None:
                     to_member_string = (
-                        " for "
+                        " for "  # type: ignore
                         + get_actor(apiary_user_id=user_id_match.group("user_id"))[
                             "actorDisplayName"
                         ]
@@ -3251,7 +3247,7 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
                             action["created_at"]
                         ),
                         "eventDescription": (
-                            "voided a DocuSign envelope for "
+                            "voided a DocuSign envelope for "  # type: ignore
                             + get_actor(apiary_user_id=action["actionable"]["signed_by"])[
                                 "actorDisplayName"
                             ]
@@ -3948,7 +3944,7 @@ def get_relationship_description(relationship_type: str, action: Dict[str, Any])
         return "fiscal year " + action[relationship_type]["ending_year"]  # type: ignore
     if action[relationship_type + "_type"] == "dues-transaction":
         return (  # type: ignore
-            get_actor(apiary_user_id=action[relationship_type]["user_id"])["actorDisplayName"]
+            get_actor(apiary_user_id=action[relationship_type]["user_id"])["actorDisplayName"]  # type: ignore
             + "'s dues transaction for "
             + action[relationship_type]["package"]["name"]
         )
@@ -3972,13 +3968,13 @@ def get_relationship_description(relationship_type: str, action: Dict[str, Any])
         action[relationship_type + "_type"] == "App\\Models\\Signature"
         or action[relationship_type + "_type"] == "signature"
     ):
-        return (  # type: ignore
-            "membership agreement for "
+        return (
+            "membership agreement for "  # type: ignore
             + get_actor(apiary_user_id=action[relationship_type]["user_id"])["actorDisplayName"]
         )
     if action[relationship_type + "_type"] == "travel-assignment":
         return (  # type: ignore
-            get_actor(apiary_user_id=action[relationship_type]["user_id"])["actorDisplayName"]
+            get_actor(apiary_user_id=action[relationship_type]["user_id"])["actorDisplayName"]  # type: ignore
             + "'s trip assignment for "
             + action[relationship_type]["travel"]["name"]
         )
