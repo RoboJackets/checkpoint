@@ -4804,12 +4804,8 @@ def dropbox_access_reply(
     Build the customer and technician text for a Dropbox access diagnosis
     """
     if status == DROPBOX_STATUS_JOIN_TEAM:
-        plain_body = (
-            " Join a team at https://my.robojackets.org/teams to access Dropbox."
-        )
-        markdown_body = (
-            " Join a team at <https://my.robojackets.org/teams|my.robojackets.org/teams> to access Dropbox."
-        )
+        plain_body = " Join a team at https://my.robojackets.org/teams to access Dropbox."
+        markdown_body = " Join a team at <https://my.robojackets.org/teams|my.robojackets.org/teams> to access Dropbox."
         technician_note = "User is not a member of any Apiary team with a Grouper group."
     elif status == DROPBOX_STATUS_SYNC_GROUPER:
         plain_body = None
@@ -4826,7 +4822,9 @@ def dropbox_access_reply(
             " Grouper sync to GTAD can take up to 24 hours."
         )
     elif status == DROPBOX_STATUS_NOT_ELIGIBLE:
-        plain_body = " You're not eligible for a Georgia Tech Dropbox account per Georgia Tech policy."
+        plain_body = (
+            " You're not eligible for a Georgia Tech Dropbox account per Georgia Tech policy."
+        )
         markdown_body = plain_body
         technician_note = "User is not eligible for a Georgia Tech Dropbox account."
     elif status == DROPBOX_STATUS_REQUEST_ACCOUNT:
