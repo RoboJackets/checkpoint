@@ -5264,6 +5264,8 @@ def handle_slack_message_event(event: Dict[str, Any]) -> None:
                 ("gate" in message_text and "gatech" not in message_text)
                 or "door" in message_text
                 or "building" in message_text
+                or "buzzcard" in message_text
+                or "buzz card" in message_text
             ):
                 # physical access-related request
                 slack.chat_postMessage(
