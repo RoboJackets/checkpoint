@@ -1542,6 +1542,18 @@ def format_search_result_blocks(
             }
         ]
 
+    sync_access_button = []
+    if result_context["apiaryUserId"] is not None:
+        sync_access_button = [
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Sync Access"},
+                "style": "danger",
+                "action_id": SYNC_ACCESS_ACTION_ID,
+                "value": result_context["primaryUsername"],
+            }
+        ]
+
     return [
         {
             "type": "section",
@@ -1562,13 +1574,7 @@ def format_search_result_blocks(
                 },
                 *apiary_button,
                 *overflow_menu,
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "Sync Access"},
-                    "style": "danger",
-                    "action_id": SYNC_ACCESS_ACTION_ID,
-                    "value": result_context["primaryUsername"],
-                },
+                *sync_access_button,
             ],
         },
     ]
