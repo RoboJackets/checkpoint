@@ -2493,6 +2493,33 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
                     + "'s Keycloak account using "
                     + get_client_display_name(**event["authDetails"])
                 )
+            elif (
+                event["operationType"] == "ACTION"
+                and "resourceType" in event
+                and event["resourceType"] == "USER"
+                and fullmatch(r"users/[^/]+/credentials/[^/]+", event["resourcePath"]) is not None
+                and "details" in event
+                and event["details"] is not None
+                and event["details"].get("credential_type") == "password"
+            ):
+                description = (
+                    "deleted the password credential from "  # type: ignore
+                    + get_actor(gtPersonDirectoryId=directory_id)["actorDisplayName"]
+                    + "'s Keycloak account using "
+                    + get_client_display_name(**event["authDetails"])
+                )
+            elif (
+                event["operationType"] == "ACTION"
+                and "resourceType" in event
+                and event["resourceType"] == "USER"
+                and fullmatch(r"users/[^/]+/reset-password", event["resourcePath"]) is not None
+            ):
+                description = (
+                    "reset the password for "  # type: ignore
+                    + get_actor(gtPersonDirectoryId=directory_id)["actorDisplayName"]
+                    + "'s Keycloak account using "
+                    + get_client_display_name(**event["authDetails"])
+                )
             else:
                 print(dumps(event))
                 raise InternalServerError(
