@@ -929,8 +929,6 @@ def get_client_display_name(**kwargs: str) -> str:
 
                 keycloak_response.raise_for_status()
 
-                print(keycloak_response.text)
-
                 return keycloak_response.json()["clientId"]  # type: ignore
 
     raise InternalServerError("Unable to identify client")
