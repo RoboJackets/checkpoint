@@ -929,8 +929,6 @@ def get_client_display_name(**kwargs: str) -> str:
 
                 keycloak_response.raise_for_status()
 
-                print(keycloak_response.text)
-
                 return keycloak_response.json()["clientId"]  # type: ignore
 
     raise InternalServerError("Unable to identify client")
@@ -2491,6 +2489,33 @@ def get_events(directory_id: str) -> List[Dict[str, Any]]:
                     + " "
                     + loads(event["representation"])[0]["name"]
                     + " role from "
+                    + get_actor(gtPersonDirectoryId=directory_id)["actorDisplayName"]
+                    + "'s Keycloak account using "
+                    + get_client_display_name(**event["authDetails"])
+                )
+            elif (
+                event["operationType"] == "ACTION"
+                and "resourceType" in event
+                and event["resourceType"] == "USER"
+                and fullmatch(r"users/[^/]+/credentials/[^/]+", event["resourcePath"]) is not None
+                and "details" in event
+                and event["details"] is not None
+                and event["details"].get("credential_type") == "password"
+            ):
+                description = (
+                    "deleted the password credential from "  # type: ignore
+                    + get_actor(gtPersonDirectoryId=directory_id)["actorDisplayName"]
+                    + "'s Keycloak account using "
+                    + get_client_display_name(**event["authDetails"])
+                )
+            elif (
+                event["operationType"] == "ACTION"
+                and "resourceType" in event
+                and event["resourceType"] == "USER"
+                and fullmatch(r"users/[^/]+/reset-password", event["resourcePath"]) is not None
+            ):
+                description = (
+                    "reset the password for "  # type: ignore
                     + get_actor(gtPersonDirectoryId=directory_id)["actorDisplayName"]
                     + "'s Keycloak account using "
                     + get_client_display_name(**event["authDetails"])
